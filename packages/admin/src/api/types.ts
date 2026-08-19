@@ -50,6 +50,8 @@ export interface Plan {
   rebind_limit: number | null;
   price: number;
   offline_grace_hours: number;
+  quota_per_device?: number | null;
+  is_count_card?: boolean;
   status: 'active' | 'inactive';
   license_count?: number;
 }
@@ -85,6 +87,8 @@ export interface License {
   allow_rebind: boolean;
   rebind_limit: number | null;
   rebind_count: number;
+  is_count_card?: boolean;
+  quota_per_device?: number | null;
   batch_id: string;
   note: string | null;
   activated_at: string | null;
@@ -102,6 +106,10 @@ export interface LicenseDevice {
   device_name: string | null;
   client_version: string | null;
   status: 'active' | 'unbound';
+  quota_total?: number | null;
+  quota_used?: number;
+  quota_reserved?: number;
+  quota_available?: number | null;
   first_seen_at: string;
   last_seen_at: string;
   last_ip: string | null;

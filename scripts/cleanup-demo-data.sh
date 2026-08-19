@@ -42,6 +42,7 @@ SET FOREIGN_KEY_CHECKS = 0;
 TRUNCATE TABLE webhook_deliveries;
 TRUNCATE TABLE webhook_endpoints;
 TRUNCATE TABLE license_batches;
+TRUNCATE TABLE license_reservations;
 TRUNCATE TABLE license_token_revocations;
 TRUNCATE TABLE license_key_exports;
 TRUNCATE TABLE license_activations;

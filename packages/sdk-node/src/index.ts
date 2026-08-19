@@ -4,6 +4,6 @@ export type { LicenseErrorCodeValue } from './errors';
 export { resolveDeviceId } from './device';
 export type { LicenseState } from './storage';
 export type {
-  ActivateResult, AppPolicy, LicenseOptions, NoticePolicy,
-  StatusResult, UpgradePolicy, VerifyResult,
+  ActivateResult, AppPolicy, ConfirmResult, LicenseOptions, NoticePolicy,
+  ReserveResult, StatusResult, UpgradePolicy, VerifyResult,
 } from './types';

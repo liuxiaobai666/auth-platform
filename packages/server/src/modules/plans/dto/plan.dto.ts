@@ -41,6 +41,10 @@ export class CreatePlanDto {
 
   @IsOptional() @Type(() => Number) @IsInt()
   sort_order?: number;
+
+  /** 次数卡：每台设备的次数额度。留空 = 普通卡（不限次） */
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100000000)
+  quota_per_device?: number | null;
 }
 
 export class UpdatePlanDto {
@@ -70,6 +74,10 @@ export class UpdatePlanDto {
 
   @IsOptional() @Type(() => Number) @IsInt()
   sort_order?: number;
+
+  /** 次数卡：每台设备的次数额度。留空 = 普通卡（不限次） */
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100000000)
+  quota_per_device?: number | null;
 }
 
 export class ListPlanDto {

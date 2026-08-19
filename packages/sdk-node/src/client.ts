@@ -5,7 +5,7 @@ import { resolveDeviceId } from './device';
 import { LicenseError, LicenseErrorCode } from './errors';
 import { LicenseState, SecureStorage } from './storage';
 import {
-  ActivateResult, AppPolicy, LicenseOptions, StatusResult, VerifyResult,
+  ActivateResult, AppPolicy, ConfirmResult, LicenseOptions, ReserveResult, StatusResult, VerifyResult,
 } from './types';
 
 export class LicenseClient {
@@ -103,6 +103,64 @@ export class LicenseClient {
     );
     this.storage.clear();
     return result;
+  }
+
+  // ---------------- 次数卡：两阶段消费 ----------------
+
+  /**
+   * 预扣 amount 次额度，返回 reservation_id。
+   * 传 requestId（幂等键）后，超时重试同一个 requestId 不会重复冻结。
+   */
+  async reserve(amount = 1, requestId?: string, ttlSeconds?: number): Promise<ReserveResult> {
+    const state = this.storage.read();
+    if (!state) throw new LicenseError(LicenseErrorCode.NOT_ACTIVATED_LOCALLY, '尚未激活');
+    return this.request<ReserveResult>('POST', '/api/v1/license/consume/reserve', {
+      app_id: this.opts.appId,
+      license_token: state.licenseToken,
+      device_id: this.deviceId,
+      amount,
+      request_id: requestId,
+      ttl_seconds: ttlSeconds,
+    });
+  }
+
+  /** 确认预扣，把冻结的额度真正扣掉。幂等，超时可安全重试。 */
+  async confirm(reservationId: string): Promise<ConfirmResult> {
+    return this.request<ConfirmResult>('POST', '/api/v1/license/consume/confirm', {
+      app_id: this.opts.appId,
+      reservation_id: reservationId,
+    });
+  }
+
+  /** 释放预扣，把冻结的额度退回（功能没执行成功时用）。 */
+  async release(reservationId: string): Promise<{ success: boolean }> {
+    return this.request('POST', '/api/v1/license/consume/release', {
+      app_id: this.opts.appId,
+      reservation_id: reservationId,
+    });
+  }
+
+  /**
+   * 便捷消费：自动 reserve → 执行你的业务 → 成功 confirm / 失败 release。
+   * 这是次数卡最推荐的用法，正确处理了"扣了但业务失败要退回"。
+   *
+   * @example
+   *   const r = await client.consume(1, async () => {
+   *     return await doExpensiveThing();  // 你的业务
+   *   });
+   *   // 业务成功则已 confirm 扣次，抛错则已 release 退回
+   */
+  async consume<T>(amount: number, work: () => Promise<T>): Promise<T> {
+    const rsv = await this.reserve(amount);
+    try {
+      const result = await work();
+      await this.confirm(rsv.reservation_id);
+      return result;
+    } catch (e) {
+      // 业务失败，退回额度。释放本身失败也不淹没原始错误（预扣会自动过期释放兜底）
+      await this.release(rsv.reservation_id).catch(() => undefined);
+      throw e;
+    }
   }
 
   /** 查询授权状态。只读，不签发令牌，也不影响本地状态。 */

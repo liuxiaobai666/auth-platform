@@ -8,6 +8,7 @@ import { AuthService } from '../src/modules/auth/auth.service';
 import { BUILTIN_ROLES } from '../src/common/auth/permissions';
 import { PrismaService } from '../src/common/prisma/prisma.service';
 import { RedisService } from '../src/common/redis/redis.service';
+import { ConsumeService } from '../src/modules/open/services/consume.service';
 import { adminAuth, PluginCreds, pluginRequest } from './helpers';
 
 jest.setTimeout(120_000);
@@ -22,6 +23,7 @@ describe('卡密平台端到端测试', () => {
   let appRowId: string;
   let planMonthId: string;
   let planNoRebindId: string;
+  let planCountId: string;
   let creds: PluginCreds;
   let otherCreds: PluginCreds;
   let otherAppId: string;
@@ -116,6 +118,13 @@ describe('卡密平台端到端测试', () => {
       .send({
         application_id: appRowId, code: 'strict', name: '严格卡', duration_days: 30,
         device_limit: 1, allow_rebind: false, offline_grace_hours: 0,
+      }).expect(201)).body.id;
+
+    planCountId = (await request(app.getHttpServer())
+      .post('/api/v1/admin/plans').set(adminAuth(superToken))
+      .send({
+        application_id: appRowId, code: 'countpack', name: '次数包', duration_days: 30,
+        device_limit: 2, quota_per_device: 5,
       }).expect(201)).body.id;
 
     const plugin = (await request(app.getHttpServer())
@@ -1466,6 +1475,165 @@ describe('卡密平台端到端测试', () => {
         .post('/api/v1/admin/maintenance/cleanup').set(adminAuth(viewerToken))
         .expect(403);
       expect(res.body.code).toBe('PERMISSION_DENIED');
+    });
+
+    it('次数卡：reserve 冻结 → confirm 真扣，可用额度正确', async () => {
+      const gen = await request(app.getHttpServer())
+        .post('/api/v1/admin/licenses/generate').set(adminAuth(superToken))
+        .send({ plan_id: planCountId, count: 1 }).expect(200);
+      const act = await pluginRequest(app, creds, 'post', '/api/v1/license/activate', {
+        app_id: APP_ID, license_key: gen.body.keys[0], device_id: 'quota-device-1',
+      }).expect(200);
+      const token = act.body.license_token;
+
+      const r = await pluginRequest(app, creds, 'post', '/api/v1/license/consume/reserve', {
+        app_id: APP_ID, license_token: token, device_id: 'quota-device-1', amount: 1,
+      }).expect(200);
+      expect(r.body.quota_available).toBe(4); // 5 冻结1 = 可用4
+
+      const c = await pluginRequest(app, creds, 'post', '/api/v1/license/consume/confirm', {
+        app_id: APP_ID, reservation_id: r.body.reservation_id,
+      }).expect(200);
+      expect(c.body.quota_used).toBe(1);
+      expect(c.body.quota_available).toBe(4);
+    });
+
+    it('次数卡：并发 reserve 不会超卖', async () => {
+      const gen = await request(app.getHttpServer())
+        .post('/api/v1/admin/licenses/generate').set(adminAuth(superToken))
+        .send({ plan_id: planCountId, count: 1 }).expect(200);
+      const act = await pluginRequest(app, creds, 'post', '/api/v1/license/activate', {
+        app_id: APP_ID, license_key: gen.body.keys[0], device_id: 'quota-device-race',
+      }).expect(200);
+      const token = act.body.license_token;
+
+      // 额度5，发起10个并发各扣1
+      const results = await Promise.all(Array.from({ length: 10 }, () =>
+        pluginRequest(app, creds, 'post', '/api/v1/license/consume/reserve', {
+          app_id: APP_ID, license_token: token, device_id: 'quota-device-race', amount: 1,
+        }).then((r) => r.body)));
+      const ok = results.filter((x) => x.success).length;
+      const exhausted = results.filter((x) => x.code === 'QUOTA_EXHAUSTED').length;
+      expect(ok).toBe(5);          // 恰好5个成功，绝不超卖
+      expect(exhausted).toBe(5);
+    });
+
+    it('次数卡：幂等键防重复冻结，confirm 幂等', async () => {
+      const gen = await request(app.getHttpServer())
+        .post('/api/v1/admin/licenses/generate').set(adminAuth(superToken))
+        .send({ plan_id: planCountId, count: 1 }).expect(200);
+      const act = await pluginRequest(app, creds, 'post', '/api/v1/license/activate', {
+        app_id: APP_ID, license_key: gen.body.keys[0], device_id: 'quota-device-idem',
+      }).expect(200);
+      const token = act.body.license_token;
+
+      const idem = 'consume-idem-key';
+      const a = await pluginRequest(app, creds, 'post', '/api/v1/license/consume/reserve', {
+        app_id: APP_ID, license_token: token, device_id: 'quota-device-idem', amount: 1, request_id: idem,
+      }).expect(200);
+      const b = await pluginRequest(app, creds, 'post', '/api/v1/license/consume/reserve', {
+        app_id: APP_ID, license_token: token, device_id: 'quota-device-idem', amount: 1, request_id: idem,
+      }).expect(200);
+      expect(a.body.reservation_id).toBe(b.body.reservation_id); // 不重复冻结
+
+      await pluginRequest(app, creds, 'post', '/api/v1/license/consume/confirm', {
+        app_id: APP_ID, reservation_id: a.body.reservation_id,
+      }).expect(200);
+      const c2 = await pluginRequest(app, creds, 'post', '/api/v1/license/consume/confirm', {
+        app_id: APP_ID, reservation_id: a.body.reservation_id,
+      }).expect(200);
+      expect(c2.body.replayed).toBe(true); // confirm 幂等
+    });
+
+    it('次数卡：release 退回额度，confirm 后不能 release', async () => {
+      const gen = await request(app.getHttpServer())
+        .post('/api/v1/admin/licenses/generate').set(adminAuth(superToken))
+        .send({ plan_id: planCountId, count: 1 }).expect(200);
+      const act = await pluginRequest(app, creds, 'post', '/api/v1/license/activate', {
+        app_id: APP_ID, license_key: gen.body.keys[0], device_id: 'quota-device-rel',
+      }).expect(200);
+      const token = act.body.license_token;
+
+      const r = await pluginRequest(app, creds, 'post', '/api/v1/license/consume/reserve', {
+        app_id: APP_ID, license_token: token, device_id: 'quota-device-rel', amount: 2,
+      }).expect(200);
+      expect(r.body.quota_available).toBe(3);
+      await pluginRequest(app, creds, 'post', '/api/v1/license/consume/release', {
+        app_id: APP_ID, reservation_id: r.body.reservation_id,
+      }).expect(200);
+      // 退回后可用回到5
+      const check = await pluginRequest(app, creds, 'post', '/api/v1/license/consume/reserve', {
+        app_id: APP_ID, license_token: token, device_id: 'quota-device-rel', amount: 1,
+      }).expect(200);
+      expect(check.body.quota_available).toBe(4);
+
+      // confirm 后不能 release
+      await pluginRequest(app, creds, 'post', '/api/v1/license/consume/confirm', {
+        app_id: APP_ID, reservation_id: check.body.reservation_id,
+      }).expect(200);
+      const badRel = await pluginRequest(app, creds, 'post', '/api/v1/license/consume/release', {
+        app_id: APP_ID, reservation_id: check.body.reservation_id,
+      }).expect(409);
+      expect(badRel.body.code).toBe('RESERVATION_NOT_ACTIVE');
+    });
+
+    it('次数卡：每台设备独立额度，互不影响', async () => {
+      const gen = await request(app.getHttpServer())
+        .post('/api/v1/admin/licenses/generate').set(adminAuth(superToken))
+        .send({ plan_id: planCountId, count: 1 }).expect(200);
+      // 同一张卡绑两台设备（device_limit=2）
+      const act1 = await pluginRequest(app, creds, 'post', '/api/v1/license/activate', {
+        app_id: APP_ID, license_key: gen.body.keys[0], device_id: 'multi-dev-A',
+      }).expect(200);
+      const act2 = await pluginRequest(app, creds, 'post', '/api/v1/license/activate', {
+        app_id: APP_ID, license_key: gen.body.keys[0], device_id: 'multi-dev-B',
+      }).expect(200);
+
+      // A 用掉2次
+      for (let i = 0; i < 2; i++) {
+        const r = await pluginRequest(app, creds, 'post', '/api/v1/license/consume/reserve', {
+          app_id: APP_ID, license_token: act1.body.license_token, device_id: 'multi-dev-A', amount: 1,
+        }).expect(200);
+        await pluginRequest(app, creds, 'post', '/api/v1/license/consume/confirm', {
+          app_id: APP_ID, reservation_id: r.body.reservation_id,
+        }).expect(200);
+      }
+      // B 的额度应该还是满的5（独立）
+      const rB = await pluginRequest(app, creds, 'post', '/api/v1/license/consume/reserve', {
+        app_id: APP_ID, license_token: act2.body.license_token, device_id: 'multi-dev-B', amount: 1,
+      }).expect(200);
+      expect(rB.body.quota_available).toBe(4); // B 冻结1，可用4（不受A影响）
+      expect(rB.body.quota_used).toBe(0);
+    });
+
+    it('次数卡：过期预扣被定时逻辑释放，额度退回', async () => {
+      const gen = await request(app.getHttpServer())
+        .post('/api/v1/admin/licenses/generate').set(adminAuth(superToken))
+        .send({ plan_id: planCountId, count: 1 }).expect(200);
+      const act = await pluginRequest(app, creds, 'post', '/api/v1/license/activate', {
+        app_id: APP_ID, license_key: gen.body.keys[0], device_id: 'quota-device-exp',
+      }).expect(200);
+      const token = act.body.license_token;
+
+      const r = await pluginRequest(app, creds, 'post', '/api/v1/license/consume/reserve', {
+        app_id: APP_ID, license_token: token, device_id: 'quota-device-exp', amount: 3,
+      }).expect(200);
+      expect(r.body.quota_available).toBe(2);
+
+      // 手动把这条预扣改成已过期，然后调过期释放逻辑
+      await prisma.licenseReservation.update({
+        where: { id: r.body.reservation_id },
+        data: { expiresAt: new Date(Date.now() - 1000) },
+      });
+      const consumeService = app.get(ConsumeService);
+      const released = await consumeService.releaseExpired();
+      expect(released).toBeGreaterThanOrEqual(1);
+
+      // 额度已退回：可用回到5，再预扣看到4
+      const check = await pluginRequest(app, creds, 'post', '/api/v1/license/consume/reserve', {
+        app_id: APP_ID, license_token: token, device_id: 'quota-device-exp', amount: 1,
+      }).expect(200);
+      expect(check.body.quota_available).toBe(4);
     });
 
     it('卡密枚举：连续 30 次「卡密不存在」后触发失败限流', async () => {

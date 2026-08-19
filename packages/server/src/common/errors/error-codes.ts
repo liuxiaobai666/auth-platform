@@ -43,6 +43,10 @@ export const ErrorCode = {
   REBIND_NOT_ALLOWED: 'REBIND_NOT_ALLOWED',
   REBIND_LIMIT_EXCEEDED: 'REBIND_LIMIT_EXCEEDED',
 
+  // 次数卡
+  QUOTA_EXHAUSTED: 'QUOTA_EXHAUSTED',
+  RESERVATION_NOT_ACTIVE: 'RESERVATION_NOT_ACTIVE',
+
   // 通用
   IDEMPOTENCY_CONFLICT: 'IDEMPOTENCY_CONFLICT',
   RATE_LIMITED: 'RATE_LIMITED',
@@ -87,6 +91,8 @@ export const ERROR_HTTP_STATUS: Record<string, number> = {
   [ErrorCode.DEVICE_NOT_BOUND]: 404,
   [ErrorCode.REBIND_NOT_ALLOWED]: 403,
   [ErrorCode.REBIND_LIMIT_EXCEEDED]: 403,
+  [ErrorCode.QUOTA_EXHAUSTED]: 403,
+  [ErrorCode.RESERVATION_NOT_ACTIVE]: 409,
 
   [ErrorCode.IDEMPOTENCY_CONFLICT]: 409,
   [ErrorCode.RATE_LIMITED]: 429,
@@ -129,6 +135,8 @@ export const ERROR_MESSAGE: Record<string, string> = {
   [ErrorCode.DEVICE_NOT_BOUND]: '该设备未绑定此卡密',
   [ErrorCode.REBIND_NOT_ALLOWED]: '当前套餐不允许换绑设备',
   [ErrorCode.REBIND_LIMIT_EXCEEDED]: '换绑次数已用尽',
+  [ErrorCode.QUOTA_EXHAUSTED]: '剩余次数不足',
+  [ErrorCode.RESERVATION_NOT_ACTIVE]: '预扣记录已结束，无法操作',
 
   [ErrorCode.IDEMPOTENCY_CONFLICT]: '幂等键已被相同接口的不同请求占用',
   [ErrorCode.RATE_LIMITED]: '请求过于频繁，请稍后再试',

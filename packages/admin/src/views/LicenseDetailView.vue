@@ -60,7 +60,12 @@ const actionLabel: Record<string, string> = {
         <el-tag :type="statusMeta[data.status]?.type" size="small">{{ statusMeta[data.status]?.label }}</el-tag>
       </el-descriptions-item>
       <el-descriptions-item label="应用"><span class="mono">{{ data.app_id }}</span></el-descriptions-item>
-      <el-descriptions-item label="套餐">{{ data.plan_name }}</el-descriptions-item>
+      <el-descriptions-item label="套餐">
+        {{ data.plan_name }}
+        <el-tag v-if="data.is_count_card" size="small" type="warning" effect="light" style="margin-left:6px">
+          次数卡 · 每设备 {{ data.quota_per_device }} 次
+        </el-tag>
+      </el-descriptions-item>
       <el-descriptions-item label="激活时间">{{ data.activated_at ? new Date(data.activated_at).toLocaleString() : '未激活' }}</el-descriptions-item>
       <el-descriptions-item label="到期时间">
         <span v-if="data.is_permanent" style="color:#16a34a">永久</span>
@@ -88,7 +93,16 @@ const actionLabel: Record<string, string> = {
           <template #default="{ row }"><span class="mono">{{ row.device_id }}</span></template>
         </el-table-column>
         <el-table-column prop="device_name" label="设备名" width="150" />
-        <el-table-column prop="client_version" label="客户端版本" width="110" />
+        <el-table-column prop="client_version" label="客户端版本" width="100" />
+        <el-table-column v-if="data?.is_count_card" label="次数额度" width="140">
+          <template #default="{ row }">
+            <span v-if="row.quota_total != null" class="tabular">
+              剩 {{ row.quota_available }} / {{ row.quota_total }}
+              <span v-if="row.quota_reserved" class="sub">（冻结 {{ row.quota_reserved }}）</span>
+            </span>
+            <span v-else class="sub">不限次</span>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="90">
           <template #default="{ row }">
             <el-tag :type="row.status === 'active' ? 'success' : 'info'" size="small">

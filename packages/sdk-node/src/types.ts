@@ -110,3 +110,25 @@ export interface LicenseOptions {
   /** 每次拿到策略时回调，用于展示公告、处理升级 */
   onPolicy?: (policy: AppPolicy) => void;
 }
+
+export interface ReserveResult {
+  success: boolean;
+  reservation_id: string;
+  status: string;
+  amount: number;
+  expires_at: string;
+  quota_total: number | null;
+  quota_used: number;
+  quota_available: number | null;
+}
+
+export interface ConfirmResult {
+  success: boolean;
+  reservation_id: string;
+  status: string;
+  amount: number;
+  replayed: boolean;
+  quota_total: number | null;
+  quota_used: number;
+  quota_available: number | null;
+}

@@ -419,6 +419,72 @@ def handle_policy(policy):
 
 ---
 
+## 7.5 次数卡（按次计费）
+
+如果套餐配置了「每设备次数额度」，卡密就是次数卡：**每台设备有各自独立的次数**，用一次扣一次。
+消费走**预扣-确认两阶段**，保证不多扣、不少扣、不超卖。
+
+### 为什么要两阶段
+
+单纯"调一次扣一次"有个问题：扣了之后你的业务如果失败了，那一次就白扣了。两阶段解决它：
+
+```
+reserve（预扣）  →  冻结 N 次额度，返回 reservation_id
+执行你的业务
+  成功  →  confirm（确认）  真正扣掉
+  失败  →  release（释放）  退回额度
+```
+
+如果客户端在中间崩溃、没来得及 confirm/release，预扣会在 TTL 到期后**自动释放**，额度不会被永久占住。
+
+### 接口
+
+```
+POST /api/v1/license/consume/reserve
+  { app_id, license_token, device_id, amount=1, request_id, ttl_seconds }
+  → { reservation_id, quota_available, ... }
+
+POST /api/v1/license/consume/confirm
+  { app_id, reservation_id }
+
+POST /api/v1/license/consume/release
+  { app_id, reservation_id }
+```
+
+### 三个正确性保证
+
+- **幂等**：reserve 带 `request_id`，超时重试同一个值不会重复冻结；confirm 幂等，重试不会重复扣。
+- **原子扣减**：额度不足时 reserve 直接返回 `QUOTA_EXHAUSTED`，并发下不会超卖（数据库层 `WHERE 可用 >= amount`）。
+- **TTL 自动释放**：崩溃没确认的预扣会过期自动退回。
+
+### SDK 用法（最省心）
+
+SDK 封装了便捷的 `consume()`，自动处理 reserve → 业务 → confirm/release：
+
+```js
+// 业务成功自动 confirm 扣次；抛错自动 release 退回
+const result = await client.consume(1, async () => {
+  return await doExpensiveThing();   // 你的核心功能
+});
+```
+
+也可以手动三步：
+
+```js
+const rsv = await client.reserve(1);       // 预扣
+try {
+  doWork();
+  await client.confirm(rsv.reservation_id); // 成功确认
+} catch {
+  await client.release(rsv.reservation_id); // 失败退回
+}
+```
+
+### 关键：consume 和 verify 是分开的
+
+`verify` 只判断"还能不能用"，**不扣次数**，可以频繁调。次数消费必须显式调 `consume`/`reserve`，
+在你"真正用掉一次功能"的时候。别把扣减放进启动校验里，否则每次开机都会误扣。
+
 ## 8. 两种典型场景
 
 ### 8.1 桌面应用

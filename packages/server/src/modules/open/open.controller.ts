@@ -5,9 +5,11 @@ import { AppException } from '../../common/errors/app.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
 import { RateLimitService } from '../../common/ratelimit/rate-limit.service';
 import { clientIp } from '../../common/utils/request.util';
+import { ConfirmDto, ReleaseDto, ReserveDto } from './dto/consume.dto';
 import { ActivateDto, DeactivateDto, PolicyQueryDto, StatusQueryDto, VerifyDto } from './dto/open.dto';
 import { PluginSignatureGuard } from './guards/plugin-signature.guard';
 import { ActivationService } from './services/activation.service';
+import { ConsumeService } from './services/consume.service';
 import { IdempotencyService } from './services/idempotency.service';
 
 /**
@@ -20,6 +22,7 @@ import { IdempotencyService } from './services/idempotency.service';
 export class OpenController {
   constructor(
     private readonly activation: ActivationService,
+    private readonly consume: ConsumeService,
     private readonly idempotency: IdempotencyService,
     private readonly rateLimit: RateLimitService,
   ) {}
@@ -122,6 +125,45 @@ export class OpenController {
     return this.activation.policyOnly(
       plugin, query.app_id, query.client_version, query.device_id, query.channel, req,
     );
+  }
+
+  // ---------------- 次数卡：两阶段消费 ----------------
+
+  /** 预扣：冻结 amount 次额度，返回 reservation_id。幂等键防重复冻结。 */
+  @HttpCode(200)
+  @Post('consume/reserve')
+  async reserve(
+    @Body() dto: ReserveDto,
+    @CurrentPlugin() plugin: PluginPrincipal,
+    @Req() req: Request,
+  ) {
+    await this.rateLimit.consume('consume', [
+      { dimension: 'ip', key: clientIp(req), limit: 600, windowSeconds: 60 },
+      { dimension: 'device', key: dto.device_id, limit: 300, windowSeconds: 60 },
+    ]);
+    return this.consume.reserve(plugin, dto, req);
+  }
+
+  /** 确认：把预扣转为真实扣减。幂等，超时可安全重试。 */
+  @HttpCode(200)
+  @Post('consume/confirm')
+  async confirmConsume(
+    @Body() dto: ConfirmDto,
+    @CurrentPlugin() plugin: PluginPrincipal,
+    @Req() req: Request,
+  ) {
+    return this.consume.confirm(plugin, dto, req);
+  }
+
+  /** 释放：功能没执行成功，把预扣的额度退回。 */
+  @HttpCode(200)
+  @Post('consume/release')
+  async releaseConsume(
+    @Body() dto: ReleaseDto,
+    @CurrentPlugin() plugin: PluginPrincipal,
+    @Req() req: Request,
+  ) {
+    return this.consume.release(plugin, dto, req);
   }
 
   /**

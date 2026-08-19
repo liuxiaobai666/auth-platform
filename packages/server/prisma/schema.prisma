@@ -13,20 +13,20 @@ datasource db {
 // ============================== 管理员与权限 ==============================
 
 model AdminUser {
-  id           String    @id @db.VarChar(32)
-  username     String    @unique @db.VarChar(64)
-  passwordHash String    @db.VarChar(255)
-  nickname     String    @db.VarChar(64)
-  email        String?   @db.VarChar(128)
-  isSuperAdmin Boolean   @default(false)
+  id           String      @id @db.VarChar(32)
+  username     String      @unique @db.VarChar(64)
+  passwordHash String      @db.VarChar(255)
+  nickname     String      @db.VarChar(64)
+  email        String?     @db.VarChar(128)
+  isSuperAdmin Boolean     @default(false)
   status       AdminStatus @default(active)
-  failedCount  Int       @default(0)
-  lockedUntil  DateTime? @db.DateTime(3)
-  lastLoginAt  DateTime? @db.DateTime(3)
-  lastLoginIp  String?   @db.VarChar(64)
-  tokenVersion Int       @default(0)
-  createdAt    DateTime  @default(now()) @db.DateTime(3)
-  updatedAt    DateTime  @updatedAt @db.DateTime(3)
+  failedCount  Int         @default(0)
+  lockedUntil  DateTime?   @db.DateTime(3)
+  lastLoginAt  DateTime?   @db.DateTime(3)
+  lastLoginIp  String?     @db.VarChar(64)
+  tokenVersion Int         @default(0)
+  createdAt    DateTime    @default(now()) @db.DateTime(3)
+  updatedAt    DateTime    @updatedAt @db.DateTime(3)
 
   roles     AdminUserRole[]
   auditLogs AuditLog[]
@@ -71,42 +71,42 @@ enum AdminStatus {
 // ============================== 应用与插件 ==============================
 
 model Application {
-  id      String  @id @db.VarChar(32)
-  appId   String  @unique @db.VarChar(64)
-  name    String  @db.VarChar(128)
-  type    AppType @default(windows)
-  status  AppStatus @default(active)
-  remark  String? @db.VarChar(500)
+  id     String    @id @db.VarChar(32)
+  appId  String    @unique @db.VarChar(64)
+  name   String    @db.VarChar(128)
+  type   AppType   @default(windows)
+  status AppStatus @default(active)
+  remark String?   @db.VarChar(500)
 
   // ---- 远程管控策略 ----
   // killSwitch 为真时所有验证请求立即拒绝，用于紧急熔断。
-  killSwitch     Boolean @default(false)
-  killMessage    String? @db.VarChar(500)
+  killSwitch         Boolean     @default(false)
+  killMessage        String?     @db.VarChar(500)
   // 维护模式：拒绝新激活，但已激活设备仍可验证通过。
-  maintenance        Boolean @default(false)
-  maintenanceMessage String? @db.VarChar(500)
+  maintenance        Boolean     @default(false)
+  maintenanceMessage String?     @db.VarChar(500)
   // 版本策略
-  minVersion     String? @db.VarChar(32)
-  latestVersion  String? @db.VarChar(32)
-  forceUpgrade   Boolean @default(false)
-  upgradeMessage String? @db.VarChar(500)
+  minVersion         String?     @db.VarChar(32)
+  latestVersion      String?     @db.VarChar(32)
+  forceUpgrade       Boolean     @default(false)
+  upgradeMessage     String?     @db.VarChar(500)
   // 公告
-  noticeEnabled Boolean     @default(false)
-  noticeLevel   NoticeLevel @default(info)
-  noticeTitle   String?     @db.VarChar(128)
-  noticeContent String?     @db.Text
+  noticeEnabled      Boolean     @default(false)
+  noticeLevel        NoticeLevel @default(info)
+  noticeTitle        String?     @db.VarChar(128)
+  noticeContent      String?     @db.Text
   // 客户端策略缓存秒数，SDK 据此决定下次拉取策略的间隔
-  policyTtlSeconds Int @default(300)
+  policyTtlSeconds   Int         @default(300)
 
   createdAt DateTime @default(now()) @db.DateTime(3)
   updatedAt DateTime @updatedAt @db.DateTime(3)
 
-  plugins     ApplicationPlugin[]
-  plans       Plan[]
-  licenseKeys LicenseKey[]
-  releases    AppRelease[]
-  activations LicenseActivation[]
-  batches     LicenseBatch[]
+  plugins          ApplicationPlugin[]
+  plans            Plan[]
+  licenseKeys      LicenseKey[]
+  releases         AppRelease[]
+  activations      LicenseActivation[]
+  batches          LicenseBatch[]
   webhookEndpoints WebhookEndpoint[]
 
   @@map("applications")
@@ -132,23 +132,23 @@ enum NoticeLevel {
 }
 
 model ApplicationPlugin {
-  id            String  @id @db.VarChar(32)
-  pluginId      String  @unique @db.VarChar(64)
-  applicationId String  @db.VarChar(32)
-  name          String  @db.VarChar(128)
-  version       String  @default("1.0.0") @db.VarChar(32)
+  id            String        @id @db.VarChar(32)
+  pluginId      String        @unique @db.VarChar(64)
+  applicationId String        @db.VarChar(32)
+  name          String        @db.VarChar(128)
+  version       String        @default("1.0.0") @db.VarChar(32)
   runtime       PluginRuntime @default(sdk)
-  endpoint      String? @db.VarChar(255)
+  endpoint      String?       @db.VarChar(255)
   status        PluginStatus  @default(testing)
 
   // Bearer Token：只存哈希用于校验，密文用于管理员按权限重新查看
-  tokenHash   String  @unique @db.VarChar(64)
-  tokenCipher String  @db.Text
-  tokenMasked String  @db.VarChar(64)
+  tokenHash           String    @unique @db.VarChar(64)
+  tokenCipher         String    @db.Text
+  tokenMasked         String    @db.VarChar(64)
   // 签名密钥必须可逆解密才能参与 HMAC 计算
-  secretCipher     String    @db.Text
-  secretMasked     String    @db.VarChar(64)
-  prevSecretCipher String?   @db.Text
+  secretCipher        String    @db.Text
+  secretMasked        String    @db.VarChar(64)
+  prevSecretCipher    String?   @db.Text
   prevSecretExpiresAt DateTime? @db.DateTime(3)
 
   config    Json?
@@ -178,24 +178,26 @@ enum PluginStatus {
 // ============================== 套餐 ==============================
 
 model Plan {
-  id            String  @id @db.VarChar(32)
-  applicationId String  @db.VarChar(32)
-  code          String  @db.VarChar(64)
-  name          String  @db.VarChar(128)
+  id                String     @id @db.VarChar(32)
+  applicationId     String     @db.VarChar(32)
+  code              String     @db.VarChar(64)
+  name              String     @db.VarChar(128)
   // 为空表示永久卡
-  durationDays  Int?
-  deviceLimit   Int     @default(1)
-  allowRebind   Boolean @default(true)
+  durationDays      Int?
+  deviceLimit       Int        @default(1)
+  allowRebind       Boolean    @default(true)
   // 为空表示不限换绑次数；allowRebind 为 false 时忽略
-  rebindLimit   Int?
-  price         Decimal @default(0) @db.Decimal(10, 2)
-  offlineGraceHours Int  @default(72)
-  status        PlanStatus @default(active)
-  sortOrder     Int     @default(0)
-  createdAt     DateTime @default(now()) @db.DateTime(3)
-  updatedAt     DateTime @updatedAt @db.DateTime(3)
+  rebindLimit       Int?
+  price             Decimal    @default(0) @db.Decimal(10, 2)
+  offlineGraceHours Int        @default(72)
+  /// 每台设备的次数额度：null = 不限次（普通时间/永久卡）；有值 = 次数卡，每设备独立额度
+  quotaPerDevice    Int?
+  status            PlanStatus @default(active)
+  sortOrder         Int        @default(0)
+  createdAt         DateTime   @default(now()) @db.DateTime(3)
+  updatedAt         DateTime   @updatedAt @db.DateTime(3)
 
-  application Application  @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  application Application    @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   licenseKeys LicenseKey[]
   batches     LicenseBatch[]
 
@@ -226,11 +228,13 @@ model LicenseKey {
 
   // 生成时从套餐快照下来，允许单卡覆盖
   durationDays      Int?
-  deviceLimit       Int      @default(1)
-  allowRebind       Boolean  @default(true)
+  deviceLimit       Int     @default(1)
+  allowRebind       Boolean @default(true)
   rebindLimit       Int?
-  rebindCount       Int      @default(0)
-  offlineGraceHours Int      @default(72)
+  rebindCount       Int     @default(0)
+  offlineGraceHours Int     @default(72)
+  /// 次数卡：每台设备的额度快照，null = 不限次
+  quotaPerDevice    Int?
 
   batchId     String    @db.VarChar(32)
   note        String?   @db.VarChar(255)
@@ -240,19 +244,20 @@ model LicenseKey {
   // 递增即可让该卡密已签发的所有令牌立即失效
   tokenVersion Int @default(0)
 
-  bannedAt     DateTime? @db.DateTime(3)
-  bannedReason String?   @db.VarChar(255)
-  revokedAt    DateTime? @db.DateTime(3)
-  revokedReason String?  @db.VarChar(255)
+  bannedAt      DateTime? @db.DateTime(3)
+  bannedReason  String?   @db.VarChar(255)
+  revokedAt     DateTime? @db.DateTime(3)
+  revokedReason String?   @db.VarChar(255)
 
   createdBy String?  @db.VarChar(32)
   createdAt DateTime @default(now()) @db.DateTime(3)
   updatedAt DateTime @updatedAt @db.DateTime(3)
 
-  application Application     @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  plan        Plan            @relation(fields: [planId], references: [id])
-  devices     LicenseDevice[]
-  activations LicenseActivation[]
+  application  Application          @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  plan         Plan                 @relation(fields: [planId], references: [id])
+  devices      LicenseDevice[]
+  activations  LicenseActivation[]
+  reservations LicenseReservation[]
 
   @@index([applicationId, status])
   @@index([keyPrefix])
@@ -274,16 +279,22 @@ model LicenseDevice {
   licenseId String @db.VarChar(32)
   deviceId  String @db.VarChar(128)
 
-  deviceName    String? @db.VarChar(128)
-  clientVersion String? @db.VarChar(32)
+  deviceName    String?          @db.VarChar(128)
+  clientVersion String?          @db.VarChar(32)
   status        DeviceBindStatus @default(active)
 
-  firstSeenAt DateTime  @default(now()) @db.DateTime(3)
-  lastSeenAt  DateTime  @default(now()) @db.DateTime(3)
-  lastIp      String?   @db.VarChar(64)
-  unboundAt   DateTime? @db.DateTime(3)
-  unboundBy   String?   @db.VarChar(64)
-  unboundReason String? @db.VarChar(255)
+  // 次数卡的设备级额度：可用 = quotaTotal - quotaUsed - quotaReserved
+  // quotaTotal 为 null 表示这台设备不限次
+  quotaTotal    Int?
+  quotaUsed     Int  @default(0)
+  quotaReserved Int  @default(0)
+
+  firstSeenAt   DateTime  @default(now()) @db.DateTime(3)
+  lastSeenAt    DateTime  @default(now()) @db.DateTime(3)
+  lastIp        String?   @db.VarChar(64)
+  unboundAt     DateTime? @db.DateTime(3)
+  unboundBy     String?   @db.VarChar(64)
+  unboundReason String?   @db.VarChar(255)
 
   licenseKey LicenseKey @relation(fields: [licenseId], references: [id], onDelete: Cascade)
 
@@ -298,6 +309,39 @@ enum DeviceBindStatus {
   unbound
 }
 
+// 次数卡的预扣记录（预扣-确认两阶段）。
+// reserve 冻结额度 → confirm 真扣 / release 退回 / 超时自动 expired 释放。
+model LicenseReservation {
+  id        String @id @db.VarChar(32)
+  licenseId String @db.VarChar(32)
+  deviceId  String @db.VarChar(128)
+  amount    Int
+
+  status         ReservationStatus @default(reserved)
+  // reserve 的幂等键：同一 (license, key) 重复 reserve 返回原记录，不重复冻结
+  idempotencyKey String?           @db.VarChar(128)
+
+  expiresAt   DateTime  @db.DateTime(3)
+  confirmedAt DateTime? @db.DateTime(3)
+  releasedAt  DateTime? @db.DateTime(3)
+  pluginId    String?   @db.VarChar(64)
+  createdAt   DateTime  @default(now()) @db.DateTime(3)
+
+  licenseKey LicenseKey @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+
+  @@unique([licenseId, idempotencyKey])
+  @@index([status, expiresAt])
+  @@index([licenseId, deviceId])
+  @@map("license_reservations")
+}
+
+enum ReservationStatus {
+  reserved
+  confirmed
+  released
+  expired
+}
+
 // 授权日志：激活、验证、解绑、状态查询的全量流水
 model LicenseActivation {
   id            String  @id @db.VarChar(32)
@@ -308,13 +352,13 @@ model LicenseActivation {
 
   action  LicenseAction
   success Boolean
-  code    String? @db.VarChar(64)
-  message String? @db.VarChar(255)
+  code    String?       @db.VarChar(64)
+  message String?       @db.VarChar(255)
 
-  clientVersion String? @db.VarChar(32)
-  ip            String? @db.VarChar(64)
-  userAgent     String? @db.VarChar(255)
-  requestId     String? @db.VarChar(64)
+  clientVersion String?  @db.VarChar(32)
+  ip            String?  @db.VarChar(64)
+  userAgent     String?  @db.VarChar(255)
+  requestId     String?  @db.VarChar(64)
   createdAt     DateTime @default(now()) @db.DateTime(3)
 
   licenseKey  LicenseKey?  @relation(fields: [licenseId], references: [id], onDelete: SetNull)
@@ -332,6 +376,7 @@ enum LicenseAction {
   deactivate
   status
   policy
+  consume
 }
 
 // 令牌撤销表：按 jti 精确撤销，配合 tokenVersion 的批量撤销
@@ -352,13 +397,13 @@ model LicenseBatch {
   applicationId String @db.VarChar(32)
   planId        String @db.VarChar(32)
 
-  count       Int
-  prefix      String? @db.VarChar(16)
+  count     Int
+  prefix    String?  @db.VarChar(16)
   /// 渠道标记：卡密卖给哪个发卡网/代理，用于追踪盗版来源
-  channel     String? @db.VarChar(64)
-  note        String? @db.VarChar(255)
-  createdBy   String? @db.VarChar(32)
-  createdAt   DateTime @default(now()) @db.DateTime(3)
+  channel   String?  @db.VarChar(64)
+  note      String?  @db.VarChar(255)
+  createdBy String?  @db.VarChar(32)
+  createdAt DateTime @default(now()) @db.DateTime(3)
 
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   plan        Plan        @relation(fields: [planId], references: [id])
@@ -369,13 +414,13 @@ model LicenseBatch {
 }
 
 model LicenseKeyExport {
-  id            String  @id @db.VarChar(32)
-  adminUserId   String  @db.VarChar(32)
-  applicationId String? @db.VarChar(32)
-  batchId       String? @db.VarChar(32)
+  id            String   @id @db.VarChar(32)
+  adminUserId   String   @db.VarChar(32)
+  applicationId String?  @db.VarChar(32)
+  batchId       String?  @db.VarChar(32)
   filter        Json?
   count         Int
-  ip            String? @db.VarChar(64)
+  ip            String?  @db.VarChar(64)
   createdAt     DateTime @default(now()) @db.DateTime(3)
 
   adminUser AdminUser @relation(fields: [adminUserId], references: [id])
@@ -387,28 +432,28 @@ model LicenseKeyExport {
 // ============================== 版本发布与安装包托管 ==============================
 
 model AppRelease {
-  id            String @id @db.VarChar(32)
-  applicationId String @db.VarChar(32)
-  version       String @db.VarChar(32)
+  id            String         @id @db.VarChar(32)
+  applicationId String         @db.VarChar(32)
+  version       String         @db.VarChar(32)
   channel       ReleaseChannel @default(stable)
 
-  fileName     String? @db.VarChar(255)
-  filePath     String? @db.VarChar(500)
-  fileSize     BigInt?
-  sha256       String? @db.VarChar(64)
-  externalUrl  String? @db.VarChar(500)
+  fileName    String? @db.VarChar(255)
+  filePath    String? @db.VarChar(500)
+  fileSize    BigInt?
+  sha256      String? @db.VarChar(64)
+  externalUrl String? @db.VarChar(500)
 
-  releaseNotes String? @db.Text
-  isMandatory  Boolean @default(false)
+  releaseNotes   String?       @db.Text
+  isMandatory    Boolean       @default(false)
   // 0-100，按设备指纹哈希稳定分桶，保证同一设备灰度结果不跳变
-  rolloutPercent Int    @default(100)
-  status        ReleaseStatus @default(draft)
+  rolloutPercent Int           @default(100)
+  status         ReleaseStatus @default(draft)
 
-  downloadCount Int      @default(0)
+  downloadCount Int       @default(0)
   publishedAt   DateTime? @db.DateTime(3)
-  createdBy     String?  @db.VarChar(32)
-  createdAt     DateTime @default(now()) @db.DateTime(3)
-  updatedAt     DateTime @updatedAt @db.DateTime(3)
+  createdBy     String?   @db.VarChar(32)
+  createdAt     DateTime  @default(now()) @db.DateTime(3)
+  updatedAt     DateTime  @updatedAt @db.DateTime(3)
 
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
@@ -431,15 +476,15 @@ enum ReleaseStatus {
 // ============================== 幂等与日志 ==============================
 
 model WebhookEndpoint {
-  id            String @id @db.VarChar(32)
-  applicationId String @db.VarChar(32)
-  url           String @db.VarChar(500)
+  id            String   @id @db.VarChar(32)
+  applicationId String   @db.VarChar(32)
+  url           String   @db.VarChar(500)
   /// 签名密钥的密文，推送时解密用来算 HMAC
-  secretCipher  String @db.Text
-  secretMasked  String @db.VarChar(64)
+  secretCipher  String   @db.Text
+  secretMasked  String   @db.VarChar(64)
   /// 订阅的事件类型，为空表示全部
   events        Json?
-  enabled       Boolean @default(true)
+  enabled       Boolean  @default(true)
   createdAt     DateTime @default(now()) @db.DateTime(3)
   updatedAt     DateTime @updatedAt @db.DateTime(3)
 
@@ -457,15 +502,15 @@ model WebhookDelivery {
   eventType  String @db.VarChar(48)
   payload    Json
 
-  status     WebhookDeliveryStatus @default(pending)
-  attempts   Int      @default(0)
-  maxAttempts Int     @default(6)
-  nextRetryAt DateTime? @db.DateTime(3)
+  status         WebhookDeliveryStatus @default(pending)
+  attempts       Int                   @default(0)
+  maxAttempts    Int                   @default(6)
+  nextRetryAt    DateTime?             @db.DateTime(3)
   lastStatusCode Int?
-  lastError  String?  @db.VarChar(500)
-  deliveredAt DateTime? @db.DateTime(3)
-  createdAt  DateTime @default(now()) @db.DateTime(3)
-  updatedAt  DateTime @updatedAt @db.DateTime(3)
+  lastError      String?               @db.VarChar(500)
+  deliveredAt    DateTime?             @db.DateTime(3)
+  createdAt      DateTime              @default(now()) @db.DateTime(3)
+  updatedAt      DateTime              @updatedAt @db.DateTime(3)
 
   endpoint WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
 
@@ -483,15 +528,15 @@ enum WebhookDeliveryStatus {
 }
 
 model IdempotencyRecord {
-  id          String   @id @db.VarChar(32)
-  pluginId    String   @db.VarChar(64)
-  endpoint    String   @db.VarChar(128)
-  idemKey     String   @db.VarChar(128)
-  requestHash String   @db.VarChar(64)
-  statusCode  Int
-  responseBody String  @db.Text
-  createdAt   DateTime @default(now()) @db.DateTime(3)
-  expiresAt   DateTime @db.DateTime(3)
+  id           String   @id @db.VarChar(32)
+  pluginId     String   @db.VarChar(64)
+  endpoint     String   @db.VarChar(128)
+  idemKey      String   @db.VarChar(128)
+  requestHash  String   @db.VarChar(64)
+  statusCode   Int
+  responseBody String   @db.Text
+  createdAt    DateTime @default(now()) @db.DateTime(3)
+  expiresAt    DateTime @db.DateTime(3)
 
   @@unique([pluginId, endpoint, idemKey])
   @@index([expiresAt])
@@ -499,15 +544,15 @@ model IdempotencyRecord {
 }
 
 model AuditLog {
-  id          String  @id @db.VarChar(32)
-  adminUserId String? @db.VarChar(32)
-  username    String? @db.VarChar(64)
-  action      String  @db.VarChar(64)
-  targetType  String? @db.VarChar(64)
-  targetId    String? @db.VarChar(64)
+  id          String   @id @db.VarChar(32)
+  adminUserId String?  @db.VarChar(32)
+  username    String?  @db.VarChar(64)
+  action      String   @db.VarChar(64)
+  targetType  String?  @db.VarChar(64)
+  targetId    String?  @db.VarChar(64)
   detail      Json?
-  ip          String? @db.VarChar(64)
-  userAgent   String? @db.VarChar(255)
+  ip          String?  @db.VarChar(64)
+  userAgent   String?  @db.VarChar(255)
   createdAt   DateTime @default(now()) @db.DateTime(3)
 
   adminUser AdminUser? @relation(fields: [adminUserId], references: [id], onDelete: SetNull)
@@ -519,13 +564,13 @@ model AuditLog {
 }
 
 model LoginLog {
-  id          String  @id @db.VarChar(32)
-  username    String  @db.VarChar(64)
-  adminUserId String? @db.VarChar(32)
+  id          String   @id @db.VarChar(32)
+  username    String   @db.VarChar(64)
+  adminUserId String?  @db.VarChar(32)
   success     Boolean
-  failReason  String? @db.VarChar(64)
-  ip          String? @db.VarChar(64)
-  userAgent   String? @db.VarChar(255)
+  failReason  String?  @db.VarChar(64)
+  ip          String?  @db.VarChar(64)
+  userAgent   String?  @db.VarChar(255)
   createdAt   DateTime @default(now()) @db.DateTime(3)
 
   @@index([username, createdAt])
@@ -534,18 +579,18 @@ model LoginLog {
 }
 
 model ApiRequestLog {
-  id         String  @id @db.VarChar(32)
-  requestId  String  @db.VarChar(64)
-  method     String  @db.VarChar(8)
-  path       String  @db.VarChar(255)
-  pluginId   String? @db.VarChar(64)
-  adminUserId String? @db.VarChar(32)
-  statusCode Int
-  code       String? @db.VarChar(64)
-  durationMs Int
-  ip         String? @db.VarChar(64)
-  userAgent  String? @db.VarChar(255)
-  createdAt  DateTime @default(now()) @db.DateTime(3)
+  id          String   @id @db.VarChar(32)
+  requestId   String   @db.VarChar(64)
+  method      String   @db.VarChar(8)
+  path        String   @db.VarChar(255)
+  pluginId    String?  @db.VarChar(64)
+  adminUserId String?  @db.VarChar(32)
+  statusCode  Int
+  code        String?  @db.VarChar(64)
+  durationMs  Int
+  ip          String?  @db.VarChar(64)
+  userAgent   String?  @db.VarChar(255)
+  createdAt   DateTime @default(now()) @db.DateTime(3)
 
   @@index([createdAt])
   @@index([pluginId, createdAt])

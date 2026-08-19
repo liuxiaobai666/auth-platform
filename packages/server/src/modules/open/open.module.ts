@@ -3,6 +3,8 @@ import { JwtModule } from '@nestjs/jwt';
 import { OpenController } from './open.controller';
 import { PluginSignatureGuard } from './guards/plugin-signature.guard';
 import { ActivationService } from './services/activation.service';
+import { ConsumeExpiryTask } from './services/consume-expiry.task';
+import { ConsumeService } from './services/consume.service';
 import { IdempotencyService } from './services/idempotency.service';
 import { LicenseTokenService } from './services/license-token.service';
 import { PolicyService } from './services/policy.service';
@@ -13,6 +15,8 @@ import { PolicyService } from './services/policy.service';
   providers: [
     PluginSignatureGuard,
     ActivationService,
+    ConsumeService,
+    ConsumeExpiryTask,
     IdempotencyService,
     LicenseTokenService,
     PolicyService,

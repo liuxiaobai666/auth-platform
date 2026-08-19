@@ -181,6 +181,8 @@ export class ActivationService {
               deviceName: dto.device_name ?? null,
               clientVersion: dto.client_version ?? null,
               status: 'active',
+              // 次数卡：新设备从卡密的每设备额度快照一份独立额度
+              quotaTotal: license.quotaPerDevice,
               firstSeenAt: now,
               lastSeenAt: now,
               lastIp: clientIp(req),

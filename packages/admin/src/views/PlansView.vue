@@ -18,6 +18,7 @@ const form = reactive({
   permanent: false, duration_days: 30, device_limit: 1,
   allow_rebind: true, unlimited_rebind: false, rebind_limit: 3,
   price: 0, offline_grace_hours: 72, status: 'active' as 'active' | 'inactive',
+  count_card: false, quota_per_device: 100,
 });
 
 async function load() {
@@ -42,6 +43,7 @@ function openCreate() {
     permanent: false, duration_days: 30, device_limit: 1,
     allow_rebind: true, unlimited_rebind: false, rebind_limit: 3,
     price: 0, offline_grace_hours: 72, status: 'active',
+    count_card: false, quota_per_device: 100,
   });
   visible.value = true;
 }
@@ -55,6 +57,7 @@ function openEdit(row: Plan) {
     unlimited_rebind: row.allow_rebind && row.rebind_limit === null,
     rebind_limit: row.rebind_limit ?? 3,
     price: row.price, offline_grace_hours: row.offline_grace_hours, status: row.status,
+    count_card: row.quota_per_device != null, quota_per_device: row.quota_per_device ?? 100,
   });
   visible.value = true;
 }
@@ -69,6 +72,7 @@ async function save() {
     price: form.price,
     offline_grace_hours: form.offline_grace_hours,
     status: form.status,
+    quota_per_device: form.count_card ? form.quota_per_device : null,
   };
   if (editing.value) {
     await patch(`/admin/plans/${editing.value.id}`, body);
@@ -116,6 +120,9 @@ async function remove(row: Plan) {
         <template #default="{ row }">
           <el-tag v-if="row.is_permanent" type="success" size="small">永久</el-tag>
           <span v-else>{{ row.duration_days }} 天</span>
+          <el-tag v-if="row.is_count_card" type="warning" size="small" effect="light" style="margin-left:4px">
+            {{ row.quota_per_device }}次/设备
+          </el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="device_limit" label="设备数" width="90" />
@@ -181,6 +188,15 @@ async function remove(row: Plan) {
         <el-form-item label="离线宽限">
           <el-input-number v-model="form.offline_grace_hours" :min="0" :max="8760" />
           <span class="sub" style="margin-left:8px">小时，0 表示每次启动都必须联网</span>
+        </el-form-item>
+        <el-form-item label="次数卡">
+          <el-switch v-model="form.count_card" />
+          <template v-if="form.count_card">
+            <span class="sub" style="margin:0 8px 0 12px">每台设备</span>
+            <el-input-number v-model="form.quota_per_device" :min="1" :max="100000000" />
+            <span class="sub" style="margin-left:6px">次</span>
+          </template>
+          <span v-else class="sub" style="margin-left:12px">开启后按次计费，每台设备独立额度，客户端用 consume 扣次</span>
         </el-form-item>
         <el-form-item label="销售价">
           <el-input-number v-model="form.price" :min="0" :precision="2" :step="1" />

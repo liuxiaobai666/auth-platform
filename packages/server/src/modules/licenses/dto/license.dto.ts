@@ -30,6 +30,10 @@ export class GenerateLicenseDto {
   @IsOptional() @IsString() @MaxLength(64)
   channel?: string;
 
+  /** 次数卡：每台设备的次数额度，留空则沿用套餐配置（套餐也没有则为普通卡不限次） */
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100000000)
+  quota_per_device?: number;
+
   // ---- 以下字段留空则沿用套餐配置，用于生成"特批卡" ----
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(36500)
   duration_days?: number;
