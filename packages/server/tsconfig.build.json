@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "// incremental": "关闭增量：tsbuildinfo 落在 dist 外面时，deleteOutDir 会让 tsc 误判无变更而不产出",
+    "incremental": false
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "test", "prisma", "**/*.spec.ts"]
+}

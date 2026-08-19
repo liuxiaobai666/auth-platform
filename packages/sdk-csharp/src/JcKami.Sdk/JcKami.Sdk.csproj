@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- 多目标：netstandard2.0 覆盖 .NET Framework 4.6.1+（大量存量 WinForms/WPF 软件），
+         net8.0 给现代项目用，能享受更快的 HttpClient 与原生 System.Text.Json -->
+    <TargetFrameworks>netstandard2.0;net8.0</TargetFrameworks>
+    <LangVersion>10.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- DTO 属性直接映射到接口文档里已说明的 JSON 字段，逐个再写一遍 XML 注释是噪音 -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+
+    <PackageId>JcKami.Sdk</PackageId>
+    <Version>1.0.0</Version>
+    <Description>卡密平台 C# 客户端 SDK</Description>
+    <RootNamespace>JcKami</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+  </ItemGroup>
+
+</Project>

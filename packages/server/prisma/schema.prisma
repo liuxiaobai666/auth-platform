@@ -1,0 +1,553 @@
+// 卡密平台数据模型（MySQL 8+）
+// 对应 DEVELOPMENT.md 第 11 章，并补充远程管控与版本发布相关表。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================== 管理员与权限 ==============================
+
+model AdminUser {
+  id           String    @id @db.VarChar(32)
+  username     String    @unique @db.VarChar(64)
+  passwordHash String    @db.VarChar(255)
+  nickname     String    @db.VarChar(64)
+  email        String?   @db.VarChar(128)
+  isSuperAdmin Boolean   @default(false)
+  status       AdminStatus @default(active)
+  failedCount  Int       @default(0)
+  lockedUntil  DateTime? @db.DateTime(3)
+  lastLoginAt  DateTime? @db.DateTime(3)
+  lastLoginIp  String?   @db.VarChar(64)
+  tokenVersion Int       @default(0)
+  createdAt    DateTime  @default(now()) @db.DateTime(3)
+  updatedAt    DateTime  @updatedAt @db.DateTime(3)
+
+  roles     AdminUserRole[]
+  auditLogs AuditLog[]
+  exports   LicenseKeyExport[]
+
+  @@map("admin_users")
+}
+
+model AdminRole {
+  id          String   @id @db.VarChar(32)
+  code        String   @unique @db.VarChar(64)
+  name        String   @db.VarChar(64)
+  description String?  @db.VarChar(255)
+  permissions Json
+  isBuiltin   Boolean  @default(false)
+  createdAt   DateTime @default(now()) @db.DateTime(3)
+  updatedAt   DateTime @updatedAt @db.DateTime(3)
+
+  users AdminUserRole[]
+
+  @@map("admin_roles")
+}
+
+model AdminUserRole {
+  adminUserId String   @db.VarChar(32)
+  roleId      String   @db.VarChar(32)
+  createdAt   DateTime @default(now()) @db.DateTime(3)
+
+  adminUser AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  role      AdminRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([adminUserId, roleId])
+  @@index([roleId])
+  @@map("admin_user_roles")
+}
+
+enum AdminStatus {
+  active
+  disabled
+}
+
+// ============================== 应用与插件 ==============================
+
+model Application {
+  id      String  @id @db.VarChar(32)
+  appId   String  @unique @db.VarChar(64)
+  name    String  @db.VarChar(128)
+  type    AppType @default(windows)
+  status  AppStatus @default(active)
+  remark  String? @db.VarChar(500)
+
+  // ---- 远程管控策略 ----
+  // killSwitch 为真时所有验证请求立即拒绝，用于紧急熔断。
+  killSwitch     Boolean @default(false)
+  killMessage    String? @db.VarChar(500)
+  // 维护模式：拒绝新激活，但已激活设备仍可验证通过。
+  maintenance        Boolean @default(false)
+  maintenanceMessage String? @db.VarChar(500)
+  // 版本策略
+  minVersion     String? @db.VarChar(32)
+  latestVersion  String? @db.VarChar(32)
+  forceUpgrade   Boolean @default(false)
+  upgradeMessage String? @db.VarChar(500)
+  // 公告
+  noticeEnabled Boolean     @default(false)
+  noticeLevel   NoticeLevel @default(info)
+  noticeTitle   String?     @db.VarChar(128)
+  noticeContent String?     @db.Text
+  // 客户端策略缓存秒数，SDK 据此决定下次拉取策略的间隔
+  policyTtlSeconds Int @default(300)
+
+  createdAt DateTime @default(now()) @db.DateTime(3)
+  updatedAt DateTime @updatedAt @db.DateTime(3)
+
+  plugins     ApplicationPlugin[]
+  plans       Plan[]
+  licenseKeys LicenseKey[]
+  releases    AppRelease[]
+  activations LicenseActivation[]
+  batches     LicenseBatch[]
+  webhookEndpoints WebhookEndpoint[]
+
+  @@map("applications")
+}
+
+enum AppType {
+  windows
+  android
+  web
+  api
+  other
+}
+
+enum AppStatus {
+  active
+  disabled
+}
+
+enum NoticeLevel {
+  info
+  warning
+  critical
+}
+
+model ApplicationPlugin {
+  id            String  @id @db.VarChar(32)
+  pluginId      String  @unique @db.VarChar(64)
+  applicationId String  @db.VarChar(32)
+  name          String  @db.VarChar(128)
+  version       String  @default("1.0.0") @db.VarChar(32)
+  runtime       PluginRuntime @default(sdk)
+  endpoint      String? @db.VarChar(255)
+  status        PluginStatus  @default(testing)
+
+  // Bearer Token：只存哈希用于校验，密文用于管理员按权限重新查看
+  tokenHash   String  @unique @db.VarChar(64)
+  tokenCipher String  @db.Text
+  tokenMasked String  @db.VarChar(64)
+  // 签名密钥必须可逆解密才能参与 HMAC 计算
+  secretCipher     String    @db.Text
+  secretMasked     String    @db.VarChar(64)
+  prevSecretCipher String?   @db.Text
+  prevSecretExpiresAt DateTime? @db.DateTime(3)
+
+  config    Json?
+  createdAt DateTime @default(now()) @db.DateTime(3)
+  updatedAt DateTime @updatedAt @db.DateTime(3)
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId])
+  @@map("application_plugins")
+}
+
+enum PluginRuntime {
+  sdk
+  http
+  webhook
+  service
+}
+
+enum PluginStatus {
+  draft
+  testing
+  active
+  disabled
+}
+
+// ============================== 套餐 ==============================
+
+model Plan {
+  id            String  @id @db.VarChar(32)
+  applicationId String  @db.VarChar(32)
+  code          String  @db.VarChar(64)
+  name          String  @db.VarChar(128)
+  // 为空表示永久卡
+  durationDays  Int?
+  deviceLimit   Int     @default(1)
+  allowRebind   Boolean @default(true)
+  // 为空表示不限换绑次数；allowRebind 为 false 时忽略
+  rebindLimit   Int?
+  price         Decimal @default(0) @db.Decimal(10, 2)
+  offlineGraceHours Int  @default(72)
+  status        PlanStatus @default(active)
+  sortOrder     Int     @default(0)
+  createdAt     DateTime @default(now()) @db.DateTime(3)
+  updatedAt     DateTime @updatedAt @db.DateTime(3)
+
+  application Application  @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  licenseKeys LicenseKey[]
+  batches     LicenseBatch[]
+
+  @@unique([applicationId, code])
+  @@index([applicationId])
+  @@map("plans")
+}
+
+enum PlanStatus {
+  active
+  inactive
+}
+
+// ============================== 卡密 ==============================
+
+model LicenseKey {
+  id            String @id @db.VarChar(32)
+  applicationId String @db.VarChar(32)
+  planId        String @db.VarChar(32)
+
+  // 四列存储方案：哈希校验 / 密文导出 / 脱敏展示 / 前缀搜索
+  keyHash   String @unique @db.VarChar(64)
+  keyCipher String @db.Text
+  keyMasked String @db.VarChar(64)
+  keyPrefix String @db.VarChar(16)
+
+  status LicenseStatus @default(unused)
+
+  // 生成时从套餐快照下来，允许单卡覆盖
+  durationDays      Int?
+  deviceLimit       Int      @default(1)
+  allowRebind       Boolean  @default(true)
+  rebindLimit       Int?
+  rebindCount       Int      @default(0)
+  offlineGraceHours Int      @default(72)
+
+  batchId     String    @db.VarChar(32)
+  note        String?   @db.VarChar(255)
+  activatedAt DateTime? @db.DateTime(3)
+  expiresAt   DateTime? @db.DateTime(3)
+
+  // 递增即可让该卡密已签发的所有令牌立即失效
+  tokenVersion Int @default(0)
+
+  bannedAt     DateTime? @db.DateTime(3)
+  bannedReason String?   @db.VarChar(255)
+  revokedAt    DateTime? @db.DateTime(3)
+  revokedReason String?  @db.VarChar(255)
+
+  createdBy String?  @db.VarChar(32)
+  createdAt DateTime @default(now()) @db.DateTime(3)
+  updatedAt DateTime @updatedAt @db.DateTime(3)
+
+  application Application     @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  plan        Plan            @relation(fields: [planId], references: [id])
+  devices     LicenseDevice[]
+  activations LicenseActivation[]
+
+  @@index([applicationId, status])
+  @@index([keyPrefix])
+  @@index([batchId])
+  @@index([expiresAt])
+  @@map("license_keys")
+}
+
+enum LicenseStatus {
+  unused
+  active
+  expired
+  banned
+  revoked
+}
+
+model LicenseDevice {
+  id        String @id @db.VarChar(32)
+  licenseId String @db.VarChar(32)
+  deviceId  String @db.VarChar(128)
+
+  deviceName    String? @db.VarChar(128)
+  clientVersion String? @db.VarChar(32)
+  status        DeviceBindStatus @default(active)
+
+  firstSeenAt DateTime  @default(now()) @db.DateTime(3)
+  lastSeenAt  DateTime  @default(now()) @db.DateTime(3)
+  lastIp      String?   @db.VarChar(64)
+  unboundAt   DateTime? @db.DateTime(3)
+  unboundBy   String?   @db.VarChar(64)
+  unboundReason String? @db.VarChar(255)
+
+  licenseKey LicenseKey @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+
+  // 同一卡密下设备唯一，解绑保留行并置为 unbound，重新绑定时复用该行
+  @@unique([licenseId, deviceId])
+  @@index([deviceId])
+  @@map("license_devices")
+}
+
+enum DeviceBindStatus {
+  active
+  unbound
+}
+
+// 授权日志：激活、验证、解绑、状态查询的全量流水
+model LicenseActivation {
+  id            String  @id @db.VarChar(32)
+  licenseId     String? @db.VarChar(32)
+  applicationId String? @db.VarChar(32)
+  pluginId      String? @db.VarChar(64)
+  deviceId      String? @db.VarChar(128)
+
+  action  LicenseAction
+  success Boolean
+  code    String? @db.VarChar(64)
+  message String? @db.VarChar(255)
+
+  clientVersion String? @db.VarChar(32)
+  ip            String? @db.VarChar(64)
+  userAgent     String? @db.VarChar(255)
+  requestId     String? @db.VarChar(64)
+  createdAt     DateTime @default(now()) @db.DateTime(3)
+
+  licenseKey  LicenseKey?  @relation(fields: [licenseId], references: [id], onDelete: SetNull)
+  application Application? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+
+  @@index([licenseId, createdAt])
+  @@index([applicationId, createdAt])
+  @@index([createdAt])
+  @@map("license_activations")
+}
+
+enum LicenseAction {
+  activate
+  verify
+  deactivate
+  status
+  policy
+}
+
+// 令牌撤销表：按 jti 精确撤销，配合 tokenVersion 的批量撤销
+model LicenseTokenRevocation {
+  jti       String   @id @db.VarChar(64)
+  licenseId String   @db.VarChar(32)
+  reason    String?  @db.VarChar(255)
+  expiresAt DateTime @db.DateTime(3)
+  createdAt DateTime @default(now()) @db.DateTime(3)
+
+  @@index([licenseId])
+  @@index([expiresAt])
+  @@map("license_token_revocations")
+}
+
+model LicenseBatch {
+  id            String @id @db.VarChar(32)
+  applicationId String @db.VarChar(32)
+  planId        String @db.VarChar(32)
+
+  count       Int
+  prefix      String? @db.VarChar(16)
+  /// 渠道标记：卡密卖给哪个发卡网/代理，用于追踪盗版来源
+  channel     String? @db.VarChar(64)
+  note        String? @db.VarChar(255)
+  createdBy   String? @db.VarChar(32)
+  createdAt   DateTime @default(now()) @db.DateTime(3)
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  plan        Plan        @relation(fields: [planId], references: [id])
+
+  @@index([applicationId, createdAt])
+  @@index([channel])
+  @@map("license_batches")
+}
+
+model LicenseKeyExport {
+  id            String  @id @db.VarChar(32)
+  adminUserId   String  @db.VarChar(32)
+  applicationId String? @db.VarChar(32)
+  batchId       String? @db.VarChar(32)
+  filter        Json?
+  count         Int
+  ip            String? @db.VarChar(64)
+  createdAt     DateTime @default(now()) @db.DateTime(3)
+
+  adminUser AdminUser @relation(fields: [adminUserId], references: [id])
+
+  @@index([adminUserId, createdAt])
+  @@map("license_key_exports")
+}
+
+// ============================== 版本发布与安装包托管 ==============================
+
+model AppRelease {
+  id            String @id @db.VarChar(32)
+  applicationId String @db.VarChar(32)
+  version       String @db.VarChar(32)
+  channel       ReleaseChannel @default(stable)
+
+  fileName     String? @db.VarChar(255)
+  filePath     String? @db.VarChar(500)
+  fileSize     BigInt?
+  sha256       String? @db.VarChar(64)
+  externalUrl  String? @db.VarChar(500)
+
+  releaseNotes String? @db.Text
+  isMandatory  Boolean @default(false)
+  // 0-100，按设备指纹哈希稳定分桶，保证同一设备灰度结果不跳变
+  rolloutPercent Int    @default(100)
+  status        ReleaseStatus @default(draft)
+
+  downloadCount Int      @default(0)
+  publishedAt   DateTime? @db.DateTime(3)
+  createdBy     String?  @db.VarChar(32)
+  createdAt     DateTime @default(now()) @db.DateTime(3)
+  updatedAt     DateTime @updatedAt @db.DateTime(3)
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, version, channel])
+  @@index([applicationId, status])
+  @@map("app_releases")
+}
+
+enum ReleaseChannel {
+  stable
+  beta
+}
+
+enum ReleaseStatus {
+  draft
+  published
+  archived
+}
+
+// ============================== 幂等与日志 ==============================
+
+model WebhookEndpoint {
+  id            String @id @db.VarChar(32)
+  applicationId String @db.VarChar(32)
+  url           String @db.VarChar(500)
+  /// 签名密钥的密文，推送时解密用来算 HMAC
+  secretCipher  String @db.Text
+  secretMasked  String @db.VarChar(64)
+  /// 订阅的事件类型，为空表示全部
+  events        Json?
+  enabled       Boolean @default(true)
+  createdAt     DateTime @default(now()) @db.DateTime(3)
+  updatedAt     DateTime @updatedAt @db.DateTime(3)
+
+  application Application       @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  deliveries  WebhookDelivery[]
+
+  @@index([applicationId])
+  @@map("webhook_endpoints")
+}
+
+model WebhookDelivery {
+  id         String @id @db.VarChar(32)
+  endpointId String @db.VarChar(32)
+  eventId    String @db.VarChar(32)
+  eventType  String @db.VarChar(48)
+  payload    Json
+
+  status     WebhookDeliveryStatus @default(pending)
+  attempts   Int      @default(0)
+  maxAttempts Int     @default(6)
+  nextRetryAt DateTime? @db.DateTime(3)
+  lastStatusCode Int?
+  lastError  String?  @db.VarChar(500)
+  deliveredAt DateTime? @db.DateTime(3)
+  createdAt  DateTime @default(now()) @db.DateTime(3)
+  updatedAt  DateTime @updatedAt @db.DateTime(3)
+
+  endpoint WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@unique([endpointId, eventId])
+  @@index([status, nextRetryAt])
+  @@index([endpointId, createdAt])
+  @@map("webhook_deliveries")
+}
+
+enum WebhookDeliveryStatus {
+  pending
+  delivered
+  failed
+  dead
+}
+
+model IdempotencyRecord {
+  id          String   @id @db.VarChar(32)
+  pluginId    String   @db.VarChar(64)
+  endpoint    String   @db.VarChar(128)
+  idemKey     String   @db.VarChar(128)
+  requestHash String   @db.VarChar(64)
+  statusCode  Int
+  responseBody String  @db.Text
+  createdAt   DateTime @default(now()) @db.DateTime(3)
+  expiresAt   DateTime @db.DateTime(3)
+
+  @@unique([pluginId, endpoint, idemKey])
+  @@index([expiresAt])
+  @@map("idempotency_records")
+}
+
+model AuditLog {
+  id          String  @id @db.VarChar(32)
+  adminUserId String? @db.VarChar(32)
+  username    String? @db.VarChar(64)
+  action      String  @db.VarChar(64)
+  targetType  String? @db.VarChar(64)
+  targetId    String? @db.VarChar(64)
+  detail      Json?
+  ip          String? @db.VarChar(64)
+  userAgent   String? @db.VarChar(255)
+  createdAt   DateTime @default(now()) @db.DateTime(3)
+
+  adminUser AdminUser? @relation(fields: [adminUserId], references: [id], onDelete: SetNull)
+
+  @@index([adminUserId, createdAt])
+  @@index([action, createdAt])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model LoginLog {
+  id          String  @id @db.VarChar(32)
+  username    String  @db.VarChar(64)
+  adminUserId String? @db.VarChar(32)
+  success     Boolean
+  failReason  String? @db.VarChar(64)
+  ip          String? @db.VarChar(64)
+  userAgent   String? @db.VarChar(255)
+  createdAt   DateTime @default(now()) @db.DateTime(3)
+
+  @@index([username, createdAt])
+  @@index([createdAt])
+  @@map("login_logs")
+}
+
+model ApiRequestLog {
+  id         String  @id @db.VarChar(32)
+  requestId  String  @db.VarChar(64)
+  method     String  @db.VarChar(8)
+  path       String  @db.VarChar(255)
+  pluginId   String? @db.VarChar(64)
+  adminUserId String? @db.VarChar(32)
+  statusCode Int
+  code       String? @db.VarChar(64)
+  durationMs Int
+  ip         String? @db.VarChar(64)
+  userAgent  String? @db.VarChar(255)
+  createdAt  DateTime @default(now()) @db.DateTime(3)
+
+  @@index([createdAt])
+  @@index([pluginId, createdAt])
+  @@map("api_request_logs")
+}

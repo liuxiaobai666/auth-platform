@@ -1,0 +1,14 @@
+node_modules/
+vendor/
+bin/
+obj/
+__pycache__/
+*.egg-info/
+dist/
+.env
+.env.local
+*.log
+storage/releases/
+packages/server/storage/
+packages/server/prisma/migrations/dev.db*
+.DS_Store

@@ -1,0 +1,9 @@
+{
+  "name": "@jc-kami/example-client",
+  "version": "1.0.0",
+  "private": true,
+  "description": "对接卡密平台的示例客户端",
+  "bin": { "jc-demo": "./src/cli.js" },
+  "scripts": { "start": "node src/cli.js" },
+  "dependencies": { "@jc-kami/sdk": "workspace:*" }
+}

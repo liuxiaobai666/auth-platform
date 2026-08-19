@@ -1,0 +1,369 @@
+/* ============================================================================
+   设计令牌
+   后台系统是拿来长时间盯着看的，所以取向是「安静」：低饱和中性色打底，
+   强调色只留给真正需要注意的地方（主操作、异常状态）。
+   ========================================================================== */
+:root {
+  /* 中性色阶：界面 95% 的面积由它构成 */
+  --c-bg:            #f6f7f9;
+  --c-surface:       #ffffff;
+  --c-surface-sunk:  #fafbfc;
+  --c-border:        #e6e8eb;
+  --c-border-strong: #d5d8dd;
+
+  --c-text:          #1a1d21;
+  --c-text-soft:     #5c6370;
+  --c-text-mute:     #8b919c;
+
+  /* 强调色 */
+  --c-primary:       #2f6feb;
+  --c-primary-soft:  #eaf1fe;
+  --c-success:       #1a7f4b;
+  --c-success-soft:  #e7f5ed;
+  --c-warning:       #a86a00;
+  --c-warning-soft:  #fdf3e2;
+  --c-danger:        #c0362c;
+  --c-danger-soft:   #fdeceb;
+
+  /* 侧边栏：比纯黑柔和，长时间看不刺眼 */
+  --c-nav:           #1c2128;
+  --c-nav-hover:     #262c35;
+  --c-nav-active:    #2f6feb;
+  --c-nav-text:      #9aa3af;
+  --c-nav-text-on:   #ffffff;
+
+  /* 间距节奏：4 的倍数，避免出现 5px 13px 这种随手值 */
+  --s-1: 4px;  --s-2: 8px;  --s-3: 12px; --s-4: 16px;
+  --s-5: 20px; --s-6: 24px; --s-8: 32px; --s-10: 40px;
+
+  --r-sm: 6px;  --r-md: 8px;  --r-lg: 12px;
+
+  /* 阴影：只用极轻的一层，靠边框而不是投影划分区域 */
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-md: 0 4px 12px rgba(16, 24, 40, 0.06);
+  --shadow-lg: 0 12px 32px rgba(16, 24, 40, 0.10);
+
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+
+  /* ---- Element Plus 主题覆盖 ---- */
+  --el-color-primary: var(--c-primary);
+  --el-color-success: var(--c-success);
+  --el-color-warning: var(--c-warning);
+  --el-color-danger:  var(--c-danger);
+  --el-color-error:   var(--c-danger);
+  --el-border-radius-base: var(--r-sm);
+  --el-border-color: var(--c-border);
+  --el-border-color-light: var(--c-border);
+  --el-border-color-lighter: var(--c-border);
+  --el-text-color-primary: var(--c-text);
+  --el-text-color-regular: var(--c-text-soft);
+  --el-text-color-secondary: var(--c-text-mute);
+  --el-fill-color-blank: var(--c-surface);
+  --el-bg-color: var(--c-surface);
+  --el-font-size-base: 14px;
+}
+
+/* ============================================================================
+   暗黑模式
+   不是把亮色反相——中性色用一套克制的深灰阶（不是纯黑，纯黑对比过硬），
+   强调色降一点饱和避免在深底上发荧光，soft 背景改成低透明度的强调色。
+   由 <html data-theme="dark"> 触发（主题 store 控制）。
+   ========================================================================== */
+:root[data-theme='dark'] {
+  --c-bg:            #16181d;
+  --c-surface:       #1d2026;
+  --c-surface-sunk:  #191c21;
+  --c-border:        #2c3038;
+  --c-border-strong: #3a3f49;
+
+  --c-text:          #e4e6eb;
+  --c-text-soft:     #a8adb8;
+  --c-text-mute:     #6f7580;
+
+  --c-primary:       #4b83f5;
+  --c-primary-soft:  #1e2b45;
+  --c-success:       #3ba776;
+  --c-success-soft:  #16281f;
+  --c-warning:       #d19a3e;
+  --c-warning-soft:  #2c2415;
+  --c-danger:        #e0655c;
+  --c-danger-soft:   #2e1a19;
+
+  /* 侧边栏在暗色下比主体再深一档，保持层次 */
+  --c-nav:           #12141a;
+  --c-nav-hover:     #1e222a;
+  --c-nav-active:    #2f6feb;
+  --c-nav-text:      #8a919d;
+  --c-nav-text-on:   #ffffff;
+
+  /* 暗色下阴影几乎不可见，靠边框划分区域 */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.24);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.32);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.44);
+
+  /* ---- Element Plus 暗色关键变量 ---- */
+  --el-color-primary: var(--c-primary);
+  --el-bg-color: var(--c-surface);
+  --el-bg-color-overlay: var(--c-surface);
+  --el-bg-color-page: var(--c-bg);
+  --el-fill-color-blank: var(--c-surface);
+  --el-fill-color-light: var(--c-surface-sunk);
+  --el-fill-color-lighter: var(--c-surface-sunk);
+  --el-fill-color: var(--c-surface-sunk);
+  --el-border-color: var(--c-border);
+  --el-border-color-light: var(--c-border);
+  --el-border-color-lighter: var(--c-border);
+  --el-border-color-extra-light: var(--c-border);
+  --el-text-color-primary: var(--c-text);
+  --el-text-color-regular: var(--c-text-soft);
+  --el-text-color-secondary: var(--c-text-mute);
+  --el-text-color-placeholder: var(--c-text-mute);
+  --el-mask-color: rgba(0, 0, 0, 0.6);
+}
+
+/* ============================================================================
+   基础
+   ========================================================================== */
+* { box-sizing: border-box; }
+html, body, #app { height: 100%; margin: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+               'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  background: var(--c-bg);
+  color: var(--c-text);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 数字一律等宽：表格里的计数、金额、版本号不会因字宽不同而参差 */
+.mono, .tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  letter-spacing: -0.01em;
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb {
+  background: #cfd3d9; border-radius: 6px;
+  border: 2px solid transparent; background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: #b6bbc3; background-clip: content-box; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* ============================================================================
+   页面骨架
+   ========================================================================== */
+.page-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: var(--s-4); flex-wrap: wrap; margin-bottom: var(--s-5);
+}
+.page-header h2 {
+  margin: 0; font-size: 19px; font-weight: 600;
+  letter-spacing: -0.01em; color: var(--c-text);
+}
+.page-header .sub,
+.sub {
+  color: var(--c-text-mute); font-size: 13px; line-height: 1.6;
+}
+.page-header .sub { margin-top: 5px; max-width: 68ch; }
+
+/* 筛选条：和内容区同宽的一条浅色带，视觉上把「查询」和「结果」分开 */
+.filter-bar {
+  display: flex; gap: var(--s-2); flex-wrap: wrap; align-items: center;
+  padding: var(--s-3); margin-bottom: var(--s-4);
+  background: var(--c-surface); border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+}
+
+/* ============================================================================
+   卡片与表格
+   ========================================================================== */
+.el-card {
+  border: 1px solid var(--c-border) !important;
+  border-radius: var(--r-md) !important;
+  box-shadow: var(--shadow-sm) !important;
+}
+.el-card__header {
+  border-bottom: 1px solid var(--c-border) !important;
+  padding: var(--s-4) var(--s-5) !important;
+  font-weight: 600;
+}
+.el-card__body { padding: var(--s-5) !important; }
+
+/* 表格：去掉重边框，用底部细线分隔，表头做浅底 */
+.el-table {
+  border-radius: var(--r-md); overflow: hidden;
+  border: 1px solid var(--c-border);
+}
+.el-table th.el-table__cell {
+  background: var(--c-surface-sunk) !important;
+  color: var(--c-text-soft) !important;
+  font-weight: 600 !important; font-size: 13px;
+  height: 42px;
+}
+.el-table td.el-table__cell { padding: 11px 0 !important; }
+.el-table--border .el-table__cell { border-right: none !important; }
+.el-table__row:hover > td.el-table__cell { background: var(--c-primary-soft) !important; }
+.el-table__inner-wrapper::before { display: none; }
+
+/* 统计卡：数字是主角，标签退后 */
+.stat-card { position: relative; overflow: hidden; }
+.stat-card .el-card__body { padding: var(--s-5) !important; }
+.stat-card .num {
+  font-size: 30px; font-weight: 650; line-height: 1.1;
+  letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
+}
+.stat-card .label {
+  color: var(--c-text-mute); font-size: 12.5px;
+  margin-top: 7px; letter-spacing: 0.01em;
+}
+/* 左侧一道细色条，比整块染色克制 */
+.stat-card::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--bar, transparent);
+}
+
+/* ============================================================================
+   状态与危险区
+   ========================================================================== */
+.el-tag { border-radius: var(--r-sm) !important; font-weight: 500; }
+
+.danger-zone {
+  border: 1px solid #f3c9c5; border-radius: var(--r-md);
+  padding: var(--s-4); background: var(--c-danger-soft);
+}
+.danger-zone h4 {
+  margin: 0 0 var(--s-3); color: var(--c-danger);
+  font-size: 13.5px; font-weight: 600;
+  display: flex; align-items: center; gap: 6px;
+}
+.danger-zone .sub { color: #9c453d; }
+
+/* 生成卡密后的明文清单：深色终端观感，提示「这是要复制走的内容」 */
+.key-list {
+  max-height: 320px; overflow: auto;
+  background: #12161c; color: #7ee3c7;
+  padding: var(--s-4); border-radius: var(--r-md);
+  font-family: var(--font-mono); font-size: 13px; line-height: 2;
+  user-select: all;
+}
+
+/* 抽屉与弹窗 */
+.el-drawer__header {
+  margin-bottom: 0 !important; padding: var(--s-5) !important;
+  border-bottom: 1px solid var(--c-border);
+  font-weight: 600; color: var(--c-text);
+}
+.el-drawer__body { padding: var(--s-5) !important; }
+.el-dialog { border-radius: var(--r-lg) !important; }
+.el-dialog__header {
+  padding: var(--s-5) !important; margin: 0 !important;
+  border-bottom: 1px solid var(--c-border);
+}
+.el-dialog__title { font-size: 15.5px; font-weight: 600; }
+.el-dialog__body { padding: var(--s-5) !important; }
+.el-dialog__footer {
+  padding: var(--s-4) var(--s-5) !important;
+  border-top: 1px solid var(--c-border);
+}
+
+.el-descriptions__label { color: var(--c-text-mute) !important; font-weight: 500 !important; }
+
+/* 分节标题 */
+.el-divider__text { color: var(--c-text-soft); font-weight: 600; font-size: 13px; }
+
+/* 空态：给一句能指路的话，而不是干巴巴的「暂无数据」 */
+.el-empty__description p { color: var(--c-text-mute); font-size: 13px; }
+
+/* 脱敏卡密不换行：换行会让整行变高，一屏能看的条数骤减 */
+.key-cell { white-space: nowrap; }
+
+/* 深色代码块在暗色主题下与页面更协调（略提亮边界） */
+:root[data-theme='dark'] .key-list,
+:root[data-theme='dark'] .code-block {
+  border: 1px solid var(--c-border);
+}
+
+/* ============================================================================
+   Markdown 渲染（接入文档「完整文档」页）
+   全部用设计令牌，亮/暗自动适配。
+   ========================================================================== */
+.markdown-body {
+  color: var(--c-text);
+  font-size: 14px;
+  line-height: 1.75;
+  max-width: 860px;
+}
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4 {
+  color: var(--c-text);
+  font-weight: 650;
+  line-height: 1.35;
+  margin: 1.6em 0 0.6em;
+}
+.markdown-body h1 { font-size: 24px; margin-top: 0; }
+.markdown-body h2 {
+  font-size: 19px; padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--c-border);
+}
+.markdown-body h3 { font-size: 16px; }
+.markdown-body h4 { font-size: 14.5px; color: var(--c-text-soft); }
+.markdown-body p { margin: 0.7em 0; }
+.markdown-body a { color: var(--c-primary); text-decoration: none; }
+.markdown-body a:hover { text-decoration: underline; }
+.markdown-body ul,
+.markdown-body ol { padding-left: 1.6em; margin: 0.7em 0; }
+.markdown-body li { margin: 0.3em 0; }
+.markdown-body strong { color: var(--c-text); font-weight: 600; }
+.markdown-body blockquote {
+  margin: 0.9em 0; padding: 0.5em 1em;
+  border-left: 3px solid var(--c-primary);
+  background: var(--c-primary-soft);
+  color: var(--c-text-soft); border-radius: 0 var(--r-sm) var(--r-sm) 0;
+}
+/* 行内代码 */
+.markdown-body code {
+  font-family: var(--font-mono); font-size: 12.5px;
+  background: var(--c-surface-sunk);
+  border: 1px solid var(--c-border);
+  border-radius: 4px; padding: 1px 5px;
+  color: var(--c-danger);
+}
+/* 代码块 */
+.markdown-body pre {
+  background: #12161c; border-radius: var(--r-md);
+  padding: 14px 16px; overflow-x: auto; margin: 0.9em 0;
+  border: 1px solid var(--c-border);
+}
+.markdown-body pre code {
+  background: none; border: none; padding: 0; color: #d6deeb;
+  font-size: 12.5px; line-height: 1.7; white-space: pre;
+}
+/* 表格 */
+.markdown-body table {
+  border-collapse: collapse; width: 100%; margin: 1em 0; font-size: 13px;
+  display: block; overflow-x: auto;
+}
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid var(--c-border); padding: 7px 11px; text-align: left;
+}
+.markdown-body th {
+  background: var(--c-surface-sunk); font-weight: 600; color: var(--c-text-soft);
+}
+.markdown-body hr {
+  border: none; border-top: 1px solid var(--c-border); margin: 1.6em 0;
+}
+.markdown-body img { max-width: 100%; }
+
+/* 完整文档页头部：标题与操作按钮两端对齐 */
+.doc-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }

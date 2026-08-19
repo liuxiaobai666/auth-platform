@@ -1,0 +1,16 @@
+{
+  "name": "jc-kami/sdk",
+  "description": "卡密平台 PHP 客户端 SDK",
+  "type": "library",
+  "license": "MIT",
+  "require": {
+    "php": ">=7.4",
+    "ext-curl": "*",
+    "ext-json": "*",
+    "ext-hash": "*"
+  },
+  "autoload": {
+    "psr-4": { "JcKami\\": "src/" }
+  },
+  "config": { "sort-packages": true }
+}
