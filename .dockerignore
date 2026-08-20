@@ -1,0 +1,15 @@
+# 构建上下文瘦身:这些不进镜像
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+!**/.env.example
+.git
+storage
+*.log
+docs
+scripts/*.js
+packages/sdk-python
+packages/sdk-php
+packages/sdk-csharp
+packages/example-client/dist

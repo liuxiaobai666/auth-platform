@@ -1,0 +1,86 @@
+name: jc-kami
+
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  server:
+    build:
+      context: .
+      dockerfile: packages/server/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      # 后端 API 直连端口:其他项目/SDK 用 http://服务器IP:8848/api/v1 对接
+      - "${API_PORT:-8848}:8848"
+    environment:
+      NODE_ENV: production
+      PORT: "8848"
+      DATABASE_URL: "mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}"
+      REDIS_URL: "redis://redis:6379/0"
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_TTL: "2h"
+      JWT_REFRESH_TTL: "7d"
+      LICENSE_TOKEN_SECRET: ${LICENSE_TOKEN_SECRET}
+      LICENSE_TOKEN_TTL_HOURS: "24"
+      LICENSE_KEY_PEPPER: ${LICENSE_KEY_PEPPER}
+      MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY}
+      SIGNATURE_WINDOW_SECONDS: "300"
+      LOGIN_MAX_FAILED: "5"
+      LOGIN_LOCK_MINUTES: "15"
+      RELEASE_STORAGE_DIR: "/app/storage/releases"
+      RELEASE_MAX_SIZE_MB: "2048"
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      LOG_RETENTION_DAYS: "90"
+      SEED_ADMIN_USERNAME: ${SEED_ADMIN_USERNAME}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD}
+    volumes:
+      - releases:/app/storage/releases
+
+  web:
+    build:
+      context: .
+      dockerfile: packages/admin/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+
+volumes:
+  mysql-data:
+  redis-data:
+  releases:
