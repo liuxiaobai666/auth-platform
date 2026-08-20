@@ -77,29 +77,11 @@ services:
     restart: unless-stopped
     depends_on:
       - server
-    # 直连端口(用 IP 直接访问后台的备用入口;正式走下面 caddy 的域名+HTTPS)
+    # 后台界面(含内部 /api 反代)。你自己的反代(宝塔/Nginx)指向宿主机这个端口即可
     ports:
       - "${HTTP_PORT:-8090}:80"
-
-  # 反向代理 + 自动 HTTPS。域名解析到本机后自动签发/续期证书
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    depends_on:
-      - web
-    ports:
-      - "80:80"
-      - "443:443"
-    environment:
-      CADDY_DOMAIN: ${CADDY_DOMAIN}
-    volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
 
 volumes:
   mysql-data:
   redis-data:
   releases:
-  caddy-data:
-  caddy-config:
