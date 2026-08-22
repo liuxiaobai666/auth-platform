@@ -1751,6 +1751,35 @@ describe('卡密平台端到端测试', () => {
       expect(JSON.stringify(res.body)).not.toContain(publicKey);
     });
 
+    it('老应用没有公钥时可补发，且补发是幂等的', async () => {
+      // 模拟升级到带签名的版本之前就存在的应用
+      await prisma.application.update({
+        where: { id: appRowId },
+        data: { updateSignPublicKey: null, updateSignPrivateKey: null },
+      });
+
+      const first = await request(app.getHttpServer())
+        .post(`/api/v1/admin/applications/${appRowId}/sign-key`).set(adminAuth(superToken))
+        .expect(201);
+      expect(first.body.created).toBe(true);
+      expect(Buffer.from(first.body.update_sign_public_key, 'base64')).toHaveLength(32);
+
+      // 再调一次绝不能换钥匙：公钥已经内置进客户端了，换掉就是所有客户端一起验签失败
+      const second = await request(app.getHttpServer())
+        .post(`/api/v1/admin/applications/${appRowId}/sign-key`).set(adminAuth(superToken))
+        .expect(201);
+      expect(second.body.created).toBe(false);
+      expect(second.body.update_sign_public_key).toBe(first.body.update_sign_public_key);
+
+      publicKey = first.body.update_sign_public_key;
+    });
+
+    it('补发密钥需要 application:write 权限', async () => {
+      await request(app.getHttpServer())
+        .post(`/api/v1/admin/applications/${appRowId}/sign-key`).set(adminAuth(viewerToken))
+        .expect(403);
+    });
+
     it('包元数据留空时给出安全默认值', async () => {
       const created = await request(app.getHttpServer())
         .post('/api/v1/admin/releases').set(adminAuth(superToken))

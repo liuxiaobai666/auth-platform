@@ -84,6 +84,22 @@ export class ApplicationsController {
     return app;
   }
 
+  /** 补发更新验签密钥。老应用升级上来时公钥是空的，这里补一副。 */
+  @Post(':id/sign-key')
+  @RequirePermissions(Permission.APPLICATION_WRITE)
+  async ensureSignKey(@Param('id') id: string, @Req() req: Request) {
+    const result = await this.apps.ensureSignKey(id);
+    if (result.created) {
+      await this.audit.record(req, {
+        action: 'application.sign_key.create',
+        targetType: 'application',
+        targetId: id,
+        detail: { public_key: result.update_sign_public_key },
+      });
+    }
+    return result;
+  }
+
   @Delete(':id')
   @RequirePermissions(Permission.APPLICATION_WRITE)
   async remove(@Param('id') id: string, @Req() req: Request) {

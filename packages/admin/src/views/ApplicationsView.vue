@@ -115,6 +115,18 @@ async function remove(row: Application) {
 
 async function openControl(row: Application) {
   const detail = await get<Application>(`/admin/applications/${row.id}`);
+  // 升级到带签名的版本之前建的应用没有验签公钥，这里补一副。
+  // 开发者必须先拿到公钥才能内置进客户端打包，不能等到发版那一刻才有。
+  if (!detail.update_sign_public_key && auth.can('application:write')) {
+    try {
+      const r = await post<{ update_sign_public_key: string }>(
+        `/admin/applications/${row.id}/sign-key`,
+      );
+      detail.update_sign_public_key = r.update_sign_public_key;
+    } catch {
+      // 补发失败不影响查看其他策略，公钥处会显示「尚未生成」
+    }
+  }
   ctlApp.value = detail;
   const p = detail.policy!;
   Object.assign(ctl, {

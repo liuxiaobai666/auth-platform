@@ -192,6 +192,31 @@ export class ApplicationsService {
     await this.redis.del(policyCacheKey(appId));
   }
 
+  /**
+   * 确保应用有更新验签密钥，没有就补一副。
+   *
+   * 升级到带签名的版本之前建的应用，这两个字段是空的；而开发者必须先拿到公钥
+   * 内置进客户端才能打包，公钥却要等发布版本时才懒生成——先有鸡还是先有蛋。
+   * 这个入口就是用来打破这个循环的，已有密钥时原样返回，不会换掉。
+   */
+  async ensureSignKey(id: string) {
+    const app = await this.prisma.application.findUnique({ where: { id } });
+    if (!app) throw AppException.notFound('应用不存在');
+    if (app.updateSignPublicKey) {
+      return { update_sign_public_key: app.updateSignPublicKey, created: false };
+    }
+
+    const pair = this.crypto.generateSignKeyPair();
+    await this.prisma.application.update({
+      where: { id },
+      data: {
+        updateSignPublicKey: pair.publicKey,
+        updateSignPrivateKey: this.crypto.encrypt(pair.privateKey),
+      },
+    });
+    return { update_sign_public_key: pair.publicKey, created: true };
+  }
+
   private toBrief(a: any) {
     return {
       id: a.id,
