@@ -299,6 +299,42 @@ func sign(secret, method, path, timestamp, nonce, body string) string {
 这个接口**不做准入拦截**：应用被停用或远程关停时它依然返回 200，只在返回体里如实标注。
 否则客户端会陷入「被拒绝了但不知道为什么」的死角，既无法向用户解释，也拿不到升级地址。
 
+完整返回结构（`verify` 和 `activate` 返回体里的 `policy` 字段与此一致）：
+
+```json
+{
+  "success": true,
+  "policy": {
+    "app_status": "active",            // active | disabled
+    "kill_switch": false,              // true 表示已被远程关停
+    "kill_message": null,              // 关停提示语，关停时才有值
+    "maintenance": false,              // 维护模式
+    "maintenance_message": null,
+    "min_version": "1.0.0",            // 最低可用版本，null 表示不限制
+    "upgrade": {
+      "required": false,               // 为真则不升级不能继续用
+      "available": true,               // 有新版可用
+      "latest_version": "1.2.0",
+      "message": null,                 // 后台配置的升级提示语
+      "download_url": "https://…",
+      "file_size": 55600000,
+      "sha256": "…",
+      "release_notes": "…",
+      "mandatory": false,              // 该版本自身被标记为强制
+      "package": { },                  // 安装方式，见 7.6
+      "signature": "…"                 // Ed25519 签名，见 7.6
+    },
+    "notice": {                        // 未启用公告时为 null
+      "level": "info",                 // info | warning | critical
+      "title": "…",
+      "content": "…"
+    },
+    "policy_ttl_seconds": 300,         // 建议的下次拉取间隔
+    "server_time": "2026-08-22T05:43:26.958Z"
+  }
+}
+```
+
 ### 3.4 通用约定
 
 - 时间统一 UTC ISO 8601，签名里的时间戳用 Unix 秒
@@ -387,33 +423,74 @@ SDK 的行为：
 
 ## 7. 处理远程管控
 
-每次 `verify` 和 `fetch_policy` 都会拿到最新策略。典型处理：
+每次 `verify`、`activate`、`fetch_policy` 都会带回最新策略，**所有判断都在服务端做完**，
+客户端只负责执行。后台改了配置，客户端下次通信就生效，不用重新发版。
+
+### 五种管控能力
+
+| 能力 | 后台在哪开 | 客户端收到什么 | 你该做什么 |
+|------|-----------|--------------|-----------|
+| **远程关停** | 应用 → 远程管控 → 立即关停 | 请求直接被拒，`APP_KILLED` | 停止运行，原样展示 `message` |
+| **维护模式** | 远程管控 → 维护中 | 新激活被拒 `APP_MAINTENANCE`；老设备 `verify` 照常 | 激活界面提示稍后再试 |
+| **最低版本** | 远程管控 → 最低可用版本 | 版本过低直接被拒 `CLIENT_VERSION_TOO_LOW` | 引导下载新版 |
+| **公告** | 远程管控 → 公告推送 | `policy.notice` 有值 | 按 `level` 分级展示 |
+| **版本升级** | 版本发布 | `policy.upgrade` | 见 [7.6](#76-远程更新自动升级) |
+
+**关停和维护的区别**：关停是紧急熔断，所有请求立即拒绝，已激活的用户也用不了；
+维护只拦新卡激活，已激活设备不受影响——不至于让维护窗口内全员掉线。
+
+### 公告怎么展示
+
+`notice` 为 `null` 表示没有公告。有值时按 `level` 决定打扰程度：
+
+| level | 含义 | 建议做法 |
+|-------|------|---------|
+| `info` | 普通通知 | 角落提示、状态栏，不打断操作 |
+| `warning` | 警示 | 弹窗提示，可关闭 |
+| `critical` | 重要 | 强提示，建议要求用户确认后才继续 |
+
+同一条公告别反复弹。用 `title + content` 做个哈希记在本地，内容没变就不再打扰。
+
+### 完整处理示例
 
 ```python
 def handle_policy(policy):
-    # 公告
-    if policy.get("notice"):
-        show_notice(policy["notice"]["level"],
-                    policy["notice"]["title"],
-                    policy["notice"]["content"])
+    # 1. 公告：先展示，因为后面可能会阻断流程
+    notice = policy.get("notice")
+    if notice and not already_shown(notice):
+        show_notice(notice["level"], notice["title"], notice["content"])
+        mark_shown(notice)
 
+    # 2. 关停：最高优先级，直接停
+    if policy.get("kill_switch"):
+        show_error(policy.get("kill_message") or "服务已停止")
+        raise SystemExit(1)
+
+    # 3. 升级
     upgrade = policy["upgrade"]
     if upgrade["required"]:
-        # 不升级就不能继续用，必须阻断启动
-        show_forced_upgrade(upgrade["latest_version"],
-                            upgrade["download_url"],
-                            upgrade["sha256"])
+        # 不升级就不能用，必须阻断——但要把下载地址显示出来，别让用户卡死
+        show_forced_upgrade(upgrade["latest_version"], upgrade["download_url"])
         raise SystemExit(1)
     elif upgrade["available"]:
-        # 有新版但不强制，提示即可
         show_upgrade_hint(upgrade["latest_version"], upgrade["release_notes"])
+
+    # 4. 按服务端建议的间隔安排下次拉取
+    schedule_next_poll(policy.get("policy_ttl_seconds", 300))
 ```
 
-服务端可能直接拒绝请求，这几个错误码是管控动作造成的，要给用户看清楚原因：
+### 拉取频率
 
-- `APP_KILLED` —— 应用被紧急关停，`message` 是后台配置的提示语，原样展示给用户
-- `APP_MAINTENANCE` —— 维护中，只拦新激活，已激活设备的 `verify` 不受影响
-- `CLIENT_VERSION_TOO_LOW` —— 版本过低，引导下载新版
+`policy_ttl_seconds`（默认 300 秒）是服务端建议的间隔，**照着它来**，别自己写死更短的轮询——
+会撞限流。启动时拉一次、之后按这个间隔拉，紧急关停最迟一个周期内生效。
+
+### 被管控拒绝时的错误码
+
+这几个错误码是管控动作造成的，要给用户看清原因，不要笼统报「网络错误」：
+
+- `APP_KILLED` —— 已被远程关停，`message` 是后台配置的提示语，原样展示
+- `APP_MAINTENANCE` —— 维护中，只拦新激活
+- `CLIENT_VERSION_TOO_LOW` —— 版本过低，`details` 里带 `min_version`
 
 下载安装包后**务必验签再执行**，只校验 SHA-256 是不够的：能替换安装包的人同样能替换哈希值。
 完整做法见 [7.6 远程更新](#76-远程更新自动升级)。
