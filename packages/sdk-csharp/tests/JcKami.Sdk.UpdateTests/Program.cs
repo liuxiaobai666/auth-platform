@@ -442,6 +442,52 @@ foreach (var badVersion in new[] { "../../etc", "..", "/abs", "a b", "", "  ", "
 foreach (var good in new[] { "1.2.0", "2.0.0-beta.1", "1_0+build5" })
     Ok(Updater.SafeVersion(good) == good, $"合法版本号 '{good}' 放行");
 
+// ==================================================================== 【11】权限位
+
+Section("【11】Unix 权限位：可执行文件解压后还得是可执行的");
+
+if (OperatingSystem.IsWindows())
+{
+    Ok(true, "Windows 无权限位概念，跳过");
+}
+else
+{
+    var permZip = Path.Combine(work, "perm.zip");
+    using (var fs = File.Create(permZip))
+    using (var zip = new ZipArchive(fs, ZipArchiveMode.Create))
+    {
+        // 高 16 位是 Unix mode，0100000 是 S_IFREG（普通文件）标志位
+        void Add(string name, int mode)
+        {
+            var entry = zip.CreateEntry(name);
+            entry.ExternalAttributes = mode << 16;
+            using var s = entry.Open();
+            s.Write(Encoding.UTF8.GetBytes(name));
+        }
+
+        Add("bin/run.sh", Convert.ToInt32("100755", 8));
+        Add("data.txt", Convert.ToInt32("100644", 8));
+        Add("bin/suid", Convert.ToInt32("104755", 8));
+    }
+
+    var permDest = Path.Combine(work, "perm-out");
+    Updater.ExtractArchive(permZip, permDest, false);
+
+    int ModeOf(string rel) =>
+        (int)File.GetUnixFileMode(Path.Combine(permDest, rel)) & 0xFFF;
+
+    var runMode = ModeOf("bin/run.sh");
+    var txtMode = ModeOf("data.txt");
+    var suidMode = ModeOf("bin/suid");
+
+    Ok(runMode == Convert.ToInt32("755", 8), $"755 的可执行文件恢复了执行位（实际 {Convert.ToString(runMode, 8)}）");
+    Ok(txtMode == Convert.ToInt32("644", 8), $"644 的普通文件权限不变（实际 {Convert.ToString(txtMode, 8)}）");
+    Ok((suidMode & Convert.ToInt32("4000", 8)) == 0,
+       $"setuid 位被丢弃，防止提权（实际 {Convert.ToString(suidMode, 8)}）");
+    Ok((suidMode & Convert.ToInt32("111", 8)) != 0,
+       $"但执行位仍保留（实际 {Convert.ToString(suidMode, 8)}）");
+}
+
 // ==================================================================== 收尾
 
 try { Directory.Delete(work, true); } catch { /* 清理失败不影响结论 */ }

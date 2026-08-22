@@ -15,6 +15,8 @@ const pipeline = stream.promises.pipeline;
 export interface ArchiveEntry {
   name: string;
   isDir: boolean;
+  /** 压缩包里记录的 Unix 权限位，未记录时为 0。 */
+  mode?: number;
   write(target: string): Promise<void>;
 }
 
@@ -26,6 +28,25 @@ export interface Archive {
 
 function fail(message: string): never {
   throw new LicenseError(LicenseErrorCode.INTERNAL_ERROR, message);
+}
+
+/**
+ * 恢复压缩包里记录的权限位。
+ *
+ * 不恢复的话，从 zip 解出来的可执行文件在 macOS/Linux 上是 644，
+ * 启动器根本起不来——Windows 没有这个概念，所以这个坑只在类 Unix 上炸。
+ *
+ * 只取 rwx 九位：setuid/setgid/sticky 一概丢弃。
+ * 更新包来自网络，让它决定这些位等于把提权的口子交出去。
+ */
+export function restoreMode(target: string, mode?: number): void {
+  // mode 为 0 是 Windows 工具打的包的常态，此时不要强行设成 000
+  if (!mode || process.platform === 'win32') return;
+  try {
+    fs.chmodSync(target, mode & 0o777);
+  } catch {
+    // 文件系统不支持权限位时不影响主流程
+  }
 }
 
 // ==================================================================== 公共入口
@@ -79,6 +100,7 @@ export async function safeExtract(
     }
     fs.mkdirSync(path.dirname(target), { recursive: true });
     await entry.write(target);
+    restoreMode(target, entry.mode);
   }
 }
 
@@ -215,6 +237,8 @@ function openZip(archive: string): Archive {
       entries.push({
         name,
         isDir,
+        // 中央目录项 external file attributes 的高 16 位就是 Unix mode
+        mode: (externalAttrs >>> 16) & 0xffff,
         write: async (target: string) => {
           // 压缩数据的真实位置要看本地头，因为本地头的 extra 长度可能和目录项不同
           const local = readAt(fd, localOffset, 30);
@@ -250,6 +274,7 @@ function readTarEntries(buf: Buffer): ArchiveEntry[] {
     if (header.every((b) => b === 0)) break; // 结束块
     const rawName = cstr(header.subarray(0, 100));
     const prefix = cstr(header.subarray(345, 500));
+    const mode = parseOctal(header.subarray(100, 108));
     const size = parseOctal(header.subarray(124, 136));
     const type = String.fromCharCode(header[156] || 0x30);
     const dataStart = off + 512;
@@ -270,6 +295,7 @@ function readTarEntries(buf: Buffer): ArchiveEntry[] {
     entries.push({
       name,
       isDir,
+      mode, // tar 头里 100..108 就是八进制的 Unix mode
       write: async (target: string) => { fs.writeFileSync(target, data); },
     });
   }

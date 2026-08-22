@@ -137,7 +137,9 @@ def _extract_archive(path, dest, strip_root):
                 (
                     info.filename,
                     info.is_dir(),
-                    lambda target, i=info, z=zf: _write_stream(z.open(i), target),
+                    lambda target, i=info, z=zf: _write_stream(
+                        z.open(i), target, i.external_attr >> 16
+                    ),
                 )
                 for info in infos
             ]
@@ -152,7 +154,9 @@ def _extract_archive(path, dest, strip_root):
                 (
                     info.name,
                     info.isdir(),
-                    lambda target, i=info, t=tf: _write_stream(t.extractfile(i), target),
+                    lambda target, i=info, t=tf: _write_stream(
+                        t.extractfile(i), target, i.mode
+                    ),
                 )
                 for info in infos
             ]
@@ -161,11 +165,29 @@ def _extract_archive(path, dest, strip_root):
     _fail("无法识别的更新包格式，仅支持 zip / tar")
 
 
-def _write_stream(source, target):
+def _write_stream(source, target, mode=0):
     if source is None:
         return
     with source as src, open(target, "wb") as dst:
         shutil.copyfileobj(src, dst, _DOWNLOAD_CHUNK)
+    _restore_mode(target, mode)
+
+
+def _restore_mode(target, mode):
+    """恢复压缩包里记录的权限位。
+
+    不恢复的话，从 zip 解出来的可执行文件在 macOS/Linux 上是 644，
+    启动器根本起不来——Windows 没有这个概念，所以这个坑只在类 Unix 上炸。
+
+    只取 rwx 九位：setuid/setgid/sticky 一概丢弃。
+    更新包来自网络，让它决定这些位等于把提权的口子交出去。
+    """
+    if not mode or os.name == "nt":
+        return
+    try:
+        os.chmod(target, mode & 0o777)
+    except OSError:
+        pass  # 文件系统不支持权限位时不影响主流程
 
 
 class Updater(object):

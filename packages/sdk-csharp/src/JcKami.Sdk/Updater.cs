@@ -6,6 +6,8 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Net.Http;
+using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
@@ -610,7 +612,76 @@ namespace JcKami
                     using (var dst = new FileStream(target, FileMode.Create, FileAccess.Write,
                                                     FileShare.None, DownloadChunk))
                         src.CopyTo(dst, DownloadChunk);
+
+                    RestoreMode(target, ReadUnixMode(entry));
                 }
+            }
+        }
+
+        /// <summary>
+        /// 读出 zip 条目里记录的 Unix mode，没有则返回 0。
+        ///
+        /// external file attributes 的高 16 位就是 Unix mode。
+        /// ZipArchiveEntry.ExternalAttributes 是 .NET Standard 2.1 才有的 API，
+        /// netstandard2.0 目标编译期拿不到，只能反射取——运行时（.NET Framework 4.7.2+、
+        /// Mono）实际上是有这个属性的，取不到就退化成「不恢复权限」，不影响解压本身。
+        /// </summary>
+        private static int ReadUnixMode(ZipArchiveEntry entry)
+        {
+#if NET8_0_OR_GREATER
+            return (int)((uint)entry.ExternalAttributes >> 16);
+#else
+            if (ExternalAttributesProp == null) return 0;
+            try
+            {
+                var value = ExternalAttributesProp.GetValue(entry, null);
+                if (value == null) return 0;
+                return (int)((uint)Convert.ToInt32(value, CultureInfo.InvariantCulture) >> 16);
+            }
+            catch { return 0; }
+#endif
+        }
+
+#if !NET8_0_OR_GREATER
+        private static readonly PropertyInfo ExternalAttributesProp =
+            typeof(ZipArchiveEntry).GetProperty("ExternalAttributes");
+
+        [DllImport("libc", EntryPoint = "chmod", SetLastError = true)]
+        private static extern int SysChmod(byte[] path, uint mode);
+#endif
+
+        /// <summary>
+        /// 恢复压缩包里记录的权限位。
+        ///
+        /// 不恢复的话，从 zip 解出来的可执行文件在 macOS/Linux 上是 644，
+        /// 启动器根本起不来——Windows 没有这个概念，所以这个坑只在类 Unix 上炸。
+        ///
+        /// 只取 rwx 九位：setuid/setgid/sticky 一概丢弃。
+        /// 更新包来自网络，让它决定这些位等于把提权的口子交出去。
+        /// </summary>
+        internal static void RestoreMode(string target, int mode)
+        {
+            // mode 为 0 是 Windows 工具打的包的常态，此时不要强行设成 000
+            if (mode == 0) return;
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
+
+            var bits = mode & 0x1FF; // 0o777
+            if (bits == 0) return;
+            try
+            {
+#if NET8_0_OR_GREATER
+                File.SetUnixFileMode(target, (UnixFileMode)bits);
+#else
+                // netstandard2.0 没有 File.SetUnixFileMode，直接调 libc 的 chmod。
+                // 路径按 UTF-8 传，避免非 ASCII 文件名被默认 ANSI 编码搞坏。
+                var bytes = new byte[Encoding.UTF8.GetByteCount(target) + 1];
+                Encoding.UTF8.GetBytes(target, 0, target.Length, bytes, 0);
+                SysChmod(bytes, (uint)bits);
+#endif
+            }
+            catch
+            {
+                // 文件系统不支持权限位时不影响主流程
             }
         }
 

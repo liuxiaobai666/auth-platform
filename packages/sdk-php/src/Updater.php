@@ -503,10 +503,58 @@ class Updater
                 stream_copy_to_stream($src, $dst);
                 fclose($src);
                 fclose($dst);
+
+                self::restoreMode($targetPath, self::readUnixMode($zip, $index));
             }
         } finally {
             $zip->close();
         }
+    }
+
+    /**
+     * 读出 zip 条目里记录的 Unix mode，没有则返回 0。
+     *
+     * ZipArchive 不直接暴露 external_attr，只能走 getExternalAttributesIndex()。
+     * 高 16 位是 mode，但仅当打包系统是 Unix 时才有意义——Windows 工具写进去的
+     * 是 FAT 属性位，照着 chmod 会得到一个完全无关的权限。
+     */
+    private static function readUnixMode(\ZipArchive $zip, int $index): int
+    {
+        if (!method_exists($zip, 'getExternalAttributesIndex')) {
+            return 0;
+        }
+        $opsys = 0;
+        $attr = 0;
+        if (@$zip->getExternalAttributesIndex($index, $opsys, $attr) !== true) {
+            return 0;
+        }
+        if ($opsys !== \ZipArchive::OPSYS_UNIX) {
+            return 0;
+        }
+        return ((int) $attr) >> 16;
+    }
+
+    /**
+     * 恢复压缩包里记录的权限位。
+     *
+     * 不恢复的话，从 zip 解出来的可执行文件在 macOS/Linux 上是 644，
+     * 启动器根本起不来——Windows 没有这个概念，所以这个坑只在类 Unix 上炸。
+     *
+     * 只取 rwx 九位：setuid/setgid/sticky 一概丢弃。
+     * 更新包来自网络，让它决定这些位等于把提权的口子交出去。
+     */
+    private static function restoreMode(string $path, int $mode): void
+    {
+        // mode 为 0 是 Windows 工具打的包的常态，此时不要强行设成 000
+        if ($mode === 0 || DIRECTORY_SEPARATOR === '\\') {
+            return;
+        }
+        $bits = $mode & 0777;
+        if ($bits === 0) {
+            return;
+        }
+        // 文件系统不支持权限位时不影响主流程，所以静默失败
+        @chmod($path, $bits);
     }
 
     /**

@@ -297,6 +297,36 @@ $r = (new Updater($rootE, $pubKey))->apply($notify);
 ok(!$r->applied && strpos((string) $r->skippedReason, 'notify') !== false, '策略为 notify → 交给宿主自己处理');
 ok(!is_dir($rootE . '/versions'), '什么都没下载');
 
+section('【15】Unix 权限位：可执行文件解压后还得是可执行的');
+if (DIRECTORY_SEPARATOR === '\\') {
+    ok(true, 'Windows 无权限位概念，跳过');
+} else {
+    $permZip = $work . '/perm.zip';
+    $z = new ZipArchive();
+    $z->open($permZip, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+    // 高 16 位是 Unix mode，0100000 是 S_IFREG（普通文件）标志位
+    $z->addFromString('bin/run.sh', "#!/bin/sh\necho hi\n");
+    $z->setExternalAttributesName('bin/run.sh', ZipArchive::OPSYS_UNIX, 0100755 << 16);
+    $z->addFromString('data.txt', 'plain');
+    $z->setExternalAttributesName('data.txt', ZipArchive::OPSYS_UNIX, 0100644 << 16);
+    $z->addFromString('bin/suid', 'evil');
+    $z->setExternalAttributesName('bin/suid', ZipArchive::OPSYS_UNIX, 0104755 << 16);
+    $z->close();
+
+    $permDest = $work . '/perm-out';
+    Updater::extractArchive($permZip, $permDest, false);
+
+    clearstatcache();
+    $runMode = fileperms($permDest . '/bin/run.sh') & 07777;
+    $txtMode = fileperms($permDest . '/data.txt') & 07777;
+    $suidMode = fileperms($permDest . '/bin/suid') & 07777;
+
+    ok($runMode === 0755, sprintf('755 的可执行文件恢复了执行位（实际 %04o）', $runMode));
+    ok($txtMode === 0644, sprintf('644 的普通文件权限不变（实际 %04o）', $txtMode));
+    ok(($suidMode & 04000) === 0, sprintf('setuid 位被丢弃，防止提权（实际 %04o）', $suidMode));
+    ok(($suidMode & 0111) !== 0, sprintf('但执行位仍保留（实际 %04o）', $suidMode));
+}
+
 rrmdir($work);
 
 if ($failures === 0) {
