@@ -1,15 +1,17 @@
 # 构建上下文瘦身:这些不进镜像
 **/node_modules
-**/dist
+# 构建产物。只匹配包根目录下的 dist——用 **/dist 会把
+# packages/server/src/modules/dist 这种源码目录一起排除，
+# 镜像里少了文件，编译时才报「找不到模块」。
+/dist
+packages/*/dist
 **/.env
 **/.env.*
 !**/.env.example
 .git
 storage
 *.log
-docs
 scripts/*.js
 packages/sdk-python
 packages/sdk-php
 packages/sdk-csharp
-packages/example-client/dist

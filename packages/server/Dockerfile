@@ -20,6 +20,9 @@ RUN pnpm install --filter @jc-kami/server... --frozen-lockfile
 
 # ---- 源码 + 构建 ----
 COPY packages/server packages/server
+# 后台「完整文档」页直接读这份 markdown。不带进镜像的话页面是空的，
+# 而且只在生产环境空——本地跑有 docs 目录，测不出来。
+COPY docs docs
 RUN pnpm --filter @jc-kami/server prisma:generate \
  && pnpm --filter @jc-kami/server build
 
