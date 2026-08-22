@@ -52,6 +52,11 @@ export class CreateReleaseDto {
   /** 安装后执行的命令，如 pip install -r requirements.txt */
   @IsOptional() @IsString() @MaxLength(500)
   post_install?: string;
+
+  /** 完整安装包放在外部存储时填这里，与上传 installer 文件二选一 */
+  @IsOptional() @IsUrl({ require_tld: false }, { message: 'installer_external_url 必须是合法的 URL' })
+  @MaxLength(500)
+  installer_external_url?: string;
 }
 
 export class UpdateReleaseDto {

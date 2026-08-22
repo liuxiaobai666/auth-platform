@@ -1,8 +1,8 @@
 import {
   Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, Req, Res,
-  UploadedFile, UseInterceptors,
+  UploadedFiles, UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { Request, Response } from 'express';
 import { diskStorage } from 'multer';
 import * as crypto from 'crypto';
@@ -41,7 +41,8 @@ export class ReleasesController {
   @Post()
   @RequirePermissions(Permission.RELEASE_WRITE)
   @UseInterceptors(
-    FileInterceptor('file', {
+    // 一个版本可以带两个包：file 是给老用户自动更新的，installer 是给新用户下载安装的
+    FileFieldsInterceptor([{ name: 'file', maxCount: 1 }, { name: 'installer', maxCount: 1 }], {
       storage: diskStorage({
         destination: (_req, _file, cb) => {
           fs.mkdirSync(storageDir, { recursive: true });
@@ -58,16 +59,20 @@ export class ReleasesController {
   )
   async create(
     @Body() dto: CreateReleaseDto,
-    @UploadedFile() file: Express.Multer.File | undefined,
+    @UploadedFiles()
+    files: { file?: Express.Multer.File[]; installer?: Express.Multer.File[] } | undefined,
     @CurrentAdmin() admin: AdminPrincipal,
     @Req() req: Request,
   ) {
-    const release = await this.releases.create(dto, file, admin.id);
+    const release = await this.releases.create(
+      dto, files?.file?.[0], admin.id, files?.installer?.[0],
+    );
     await this.audit.record(req, {
       action: 'release.create', targetType: 'release', targetId: release.id,
       detail: {
         app_id: release.app_id, version: release.version, channel: release.channel,
         file_size: release.file_size, sha256: release.sha256,
+        installer_size: release.installer_size,
       },
     });
     return release;

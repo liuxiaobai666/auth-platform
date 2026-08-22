@@ -17,6 +17,7 @@ import { ApplicationsModule } from './modules/applications/applications.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
+import { DistModule } from './modules/dist/dist.module';
 import { BatchesModule } from './modules/batches/batches.module';
 import { DocsModule } from './modules/docs/docs.module';
 import { LicensesModule } from './modules/licenses/licenses.module';
@@ -50,6 +51,7 @@ import { ReleasesModule } from './modules/releases/releases.module';
     BatchesModule,
     AnalyticsModule,
     WebhooksModule,
+    DistModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

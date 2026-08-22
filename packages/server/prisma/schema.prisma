@@ -114,6 +114,7 @@ model Application {
   activations      LicenseActivation[]
   batches          LicenseBatch[]
   webhookEndpoints WebhookEndpoint[]
+  distSite         AppDistSite?
 
   @@map("applications")
 }
@@ -461,6 +462,14 @@ model AppRelease {
   // Ed25519 签名（base64）。签的是 版本+哈希+大小，防篡改也防版本回滚
   signature       String?         @db.VarChar(128)
 
+  // ---- 完整安装包（给新用户下载，含启动器等更新包里没有的东西）----
+  // 与上面的更新包是同一个版本的两种形态：老用户走更新包，新用户下这个。
+  installerName        String? @db.VarChar(255)
+  installerPath        String? @db.VarChar(500)
+  installerSize        BigInt?
+  installerSha256      String? @db.VarChar(64)
+  installerExternalUrl String? @db.VarChar(500)
+
   releaseNotes   String?       @db.Text
   isMandatory    Boolean       @default(false)
   // 0-100，按设备指纹哈希稳定分桶，保证同一设备灰度结果不跳变
@@ -478,6 +487,39 @@ model AppRelease {
   @@unique([applicationId, version, channel])
   @@index([applicationId, status])
   @@map("app_releases")
+}
+
+/// 应用的对外分发页：给新用户看的下载站，和后台完全隔离。
+model AppDistSite {
+  id            String  @id @db.VarChar(32)
+  applicationId String  @unique @db.VarChar(32)
+  /// 访问路径 /d/<slug>。独立于 appId，改域名展示不影响接入标识
+  slug          String  @unique @db.VarChar(64)
+  enabled       Boolean @default(false)
+
+  title       String? @db.VarChar(128)
+  tagline     String? @db.VarChar(255)
+  logoUrl     String? @db.VarChar(500)
+  /// 使用说明，markdown
+  intro       String? @db.Text
+  purchaseUrl String? @db.VarChar(500)
+
+  supportQq     String? @db.VarChar(64)
+  supportWechat String? @db.VarChar(64)
+  supportEmail  String? @db.VarChar(128)
+
+  /// 开启后必须先验卡密才给下载地址，防止未购买的人拿到安装包
+  requireLicense Boolean @default(true)
+  showChangelog  Boolean @default(true)
+  /// 下载次数，只做展示与粗略统计
+  downloadCount  Int     @default(0)
+
+  createdAt DateTime @default(now()) @db.DateTime(3)
+  updatedAt DateTime @updatedAt @db.DateTime(3)
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@map("app_dist_sites")
 }
 
 enum PackageType {

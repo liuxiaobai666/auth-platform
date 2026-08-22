@@ -1805,4 +1805,122 @@ describe('卡密平台端到端测试', () => {
       expect(published.body.signed).toBe(false);
     });
   });
+  describe('16. 分发页', () => {
+    const SLUG = 'e2e-dist';
+    let ticket: string;
+
+    it('默认不开启，链接名取 app_id', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/admin/applications/${appRowId}/dist-site`).set(adminAuth(superToken))
+        .expect(200);
+      expect(res.body.enabled).toBe(false);
+      expect(res.body.slug).toBe(APP_ID);
+    });
+
+    it('开启后可访问，页面内容来自配置且不含卡密', async () => {
+      await request(app.getHttpServer())
+        .put(`/api/v1/admin/applications/${appRowId}/dist-site`).set(adminAuth(superToken))
+        .send({
+          enabled: true, slug: SLUG, title: '端到端演示', tagline: '简介一句话',
+          intro: '## 步骤\n\n- 解压\n- 双击 **launcher.exe**',
+          support_qq: '10000', require_license: true,
+        })
+        .expect(200);
+
+      const page = await request(app.getHttpServer()).get(`/d/${SLUG}`).expect(200);
+      expect(page.headers['content-type']).toContain('html');
+      expect(page.text).toContain('端到端演示');
+      expect(page.text).toContain('<strong>launcher.exe</strong>');
+      expect(page.text).toContain('<li>解压</li>');
+    });
+
+    it('页面对配置内容做转义，脚本注入不会被执行', async () => {
+      await request(app.getHttpServer())
+        .put(`/api/v1/admin/applications/${appRowId}/dist-site`).set(adminAuth(superToken))
+        .send({ title: '<script>alert(1)</script>', tagline: '"><img src=x onerror=alert(2)>' })
+        .expect(200);
+
+      const page = await request(app.getHttpServer()).get(`/d/${SLUG}`).expect(200);
+      expect(page.text).not.toContain('<script>alert(1)');
+      expect(page.text).not.toContain('<img src=x onerror');
+      expect(page.text).toContain('&lt;script&gt;');
+
+      await request(app.getHttpServer())
+        .put(`/api/v1/admin/applications/${appRowId}/dist-site`).set(adminAuth(superToken))
+        .send({ title: '端到端演示', tagline: '简介一句话' }).expect(200);
+    });
+
+    it('上传完整安装包，与更新包各存一份', async () => {
+      const created = await request(app.getHttpServer())
+        .post('/api/v1/admin/releases').set(adminAuth(superToken))
+        .field('application_id', appRowId)
+        .field('version', '4.0.0')
+        .attach('file', Buffer.from('update-package-body'), 'update-4.0.0.zip')
+        .attach('installer', Buffer.from('installer-package-body-longer'), 'Setup-4.0.0.zip')
+        .expect(201);
+      expect(created.body.has_installer).toBe(true);
+      expect(created.body.installer_sha256).not.toBe(created.body.sha256);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/admin/releases/${created.body.id}/publish`).set(adminAuth(superToken))
+        .send({}).expect(200);
+    });
+
+    it('有效卡密换到票据，凭票据下到的是安装包', async () => {
+      const { key } = await newLicense();
+      const unlock = await request(app.getHttpServer())
+        .post(`/api/v1/pub/dist/${SLUG}/unlock`).send({ license_key: key })
+        .expect(200);
+      expect(unlock.body.ticket).toBeTruthy();
+      ticket = unlock.body.ticket;
+
+      const dl = await request(app.getHttpServer())
+        .get(`/api/v1/pub/dist/${SLUG}/download?t=${encodeURIComponent(ticket)}`)
+        .buffer(true)
+        .parse((res, cb) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (c: Buffer) => chunks.push(c));
+          res.on('end', () => cb(null, Buffer.concat(chunks)));
+        })
+        .expect(200);
+      // 拿到的必须是安装包，不能是同一版本的更新包
+      expect(dl.body.toString()).toBe('installer-package-body-longer');
+      expect(dl.headers['content-disposition']).toContain('Setup-4.0.0.zip');
+    });
+
+    it('卡密无效时提示统一，不泄露卡密是否存在', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/pub/dist/${SLUG}/unlock`)
+        .send({ license_key: 'AAAAA-BBBBB-CCCCC-DDDDD-EEEEE' });
+      expect(res.status).toBeGreaterThanOrEqual(400);
+      expect(res.body.message).toBe('卡密无效');
+    });
+
+    it('票据被篡改或为空一律拒绝', async () => {
+      const tampered = ticket.slice(0, -4) + 'AAAA';
+      await request(app.getHttpServer())
+        .get(`/api/v1/pub/dist/${SLUG}/download?t=${encodeURIComponent(tampered)}`)
+        .expect(403);
+      await request(app.getHttpServer())
+        .get(`/api/v1/pub/dist/${SLUG}/download?t=`)
+        .expect(403);
+    });
+
+    it('关闭后页面与验卡接口一起失效', async () => {
+      await request(app.getHttpServer())
+        .put(`/api/v1/admin/applications/${appRowId}/dist-site`).set(adminAuth(superToken))
+        .send({ enabled: false }).expect(200);
+
+      await request(app.getHttpServer()).get(`/d/${SLUG}`).expect(404);
+      await request(app.getHttpServer())
+        .post(`/api/v1/pub/dist/${SLUG}/unlock`).send({ license_key: 'x' })
+        .expect(404);
+    });
+
+    it('配置分发页需要 application:write 权限', async () => {
+      await request(app.getHttpServer())
+        .put(`/api/v1/admin/applications/${appRowId}/dist-site`).set(adminAuth(viewerToken))
+        .send({ enabled: true }).expect(403);
+    });
+  });
 });

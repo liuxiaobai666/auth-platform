@@ -54,10 +54,16 @@ export class ReleasesService {
     return this.toDto(release);
   }
 
-  async create(dto: CreateReleaseDto, file: Express.Multer.File | undefined, adminId: string) {
+  async create(
+    dto: CreateReleaseDto,
+    file: Express.Multer.File | undefined,
+    adminId: string,
+    installer?: Express.Multer.File,
+  ) {
     const app = await this.prisma.application.findUnique({ where: { id: dto.application_id } });
     if (!app) {
       if (file) await this.safeUnlink(file.path);
+      if (installer) await this.safeUnlink(installer.path);
       throw AppException.notFound('应用不存在');
     }
 
@@ -71,6 +77,7 @@ export class ReleasesService {
     });
     if (dup) {
       if (file) await this.safeUnlink(file.path);
+      if (installer) await this.safeUnlink(installer.path);
       throw new AppException(ErrorCode.CONFLICT, `${channel} 通道下版本 ${dto.version} 已存在`);
     }
     if (!file && !dto.external_url) {
@@ -80,6 +87,11 @@ export class ReleasesService {
     let sha256: string | null = null;
     if (file) {
       sha256 = await this.hashFile(file.path);
+    }
+    // 完整安装包是给新用户在分发页下载的，和更新包同属一个版本
+    let installerSha256: string | null = null;
+    if (installer) {
+      installerSha256 = await this.hashFile(installer.path);
     }
 
     const release = await this.prisma.appRelease.create({
@@ -93,6 +105,11 @@ export class ReleasesService {
         fileSize: file ? BigInt(file.size) : null,
         sha256,
         externalUrl: dto.external_url ?? null,
+        installerName: installer?.originalname ?? null,
+        installerPath: installer ? path.relative(this.storageDir, installer.path) : null,
+        installerSize: installer ? BigInt(installer.size) : null,
+        installerSha256,
+        installerExternalUrl: dto.installer_external_url ?? null,
         packageType: (dto.package_type ?? 'zip') as any,
         installStrategy: (dto.install_strategy ?? 'versioned') as any,
         stripRootDir: dto.strip_root_dir ?? false,
@@ -246,8 +263,9 @@ export class ReleasesService {
     if (release.status === 'published') {
       throw new AppException(ErrorCode.CONFLICT, '已发布的版本不能直接删除，请先归档');
     }
-    if (release.filePath) {
-      await this.safeUnlink(path.join(this.storageDir, release.filePath));
+    // 更新包和安装包是两个文件，漏删任何一个都会在盘上留下永远清不掉的孤儿
+    for (const rel of [release.filePath, release.installerPath]) {
+      if (rel) await this.safeUnlink(path.join(this.storageDir, rel));
     }
     await this.prisma.appRelease.delete({ where: { id } });
     return { success: true };
@@ -288,14 +306,19 @@ export class ReleasesService {
    */
   async purgeFilesOfApplication(applicationId: string): Promise<number> {
     const releases = await this.prisma.appRelease.findMany({
-      where: { applicationId, filePath: { not: null } },
-      select: { filePath: true },
+      where: {
+        applicationId,
+        OR: [{ filePath: { not: null } }, { installerPath: { not: null } }],
+      },
+      select: { filePath: true, installerPath: true },
     });
 
     let removed = 0;
-    for (const r of releases) {
-      const abs = path.resolve(this.storageDir, r.filePath!);
-      // filePath 来自数据库，仍要防止构造出跳出存储目录的相对路径
+    // 一个版本可能同时有更新包和安装包，两个都要清
+    for (const rel of releases.flatMap((r) => [r.filePath, r.installerPath])) {
+      if (!rel) continue;
+      const abs = path.resolve(this.storageDir, rel);
+      // 路径来自数据库，仍要防止构造出跳出存储目录的相对路径
       if (!abs.startsWith(path.resolve(this.storageDir) + path.sep)) continue;
       if (!fs.existsSync(abs)) continue;
       await this.safeUnlink(abs);
@@ -332,6 +355,11 @@ export class ReleasesService {
       file_size: r.fileSize ? Number(r.fileSize) : null,
       sha256: r.sha256,
       external_url: r.externalUrl,
+      installer_name: r.installerName,
+      installer_size: r.installerSize ? Number(r.installerSize) : null,
+      installer_sha256: r.installerSha256,
+      installer_external_url: r.installerExternalUrl,
+      has_installer: !!(r.installerPath || r.installerExternalUrl),
       package_type: r.packageType,
       install_strategy: r.installStrategy,
       strip_root_dir: r.stripRootDir,

@@ -12,6 +12,8 @@ export default defineConfig({
     proxy: {
       // 开发期直连本地授权中心，避免前端配置里出现跨域和硬编码域名
       '/api': { target: 'http://127.0.0.1:3100', changeOrigin: true },
+      // 分发页由后端直出，开发时也要转过去
+      '/d': { target: 'http://127.0.0.1:3100', changeOrigin: true },
     },
   },
 });

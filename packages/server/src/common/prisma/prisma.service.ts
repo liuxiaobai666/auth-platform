@@ -21,7 +21,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       // 子表在前、被引用的表在后（虽然关了外键检查，但保持顺序更清晰）
       'webhook_deliveries', 'webhook_endpoints',
       'license_token_revocations', 'license_key_exports', 'license_activations',
-      'license_devices', 'license_keys', 'license_batches', 'plans', 'app_releases',
+      'license_reservations',
+      'license_devices', 'license_keys', 'license_batches', 'plans',
+      'app_dist_sites', 'app_releases',
       'application_plugins', 'applications', 'idempotency_records',
       'api_request_logs', 'login_logs', 'audit_logs',
       'admin_user_roles', 'admin_roles', 'admin_users',

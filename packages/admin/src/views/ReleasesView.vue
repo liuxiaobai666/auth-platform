@@ -22,6 +22,7 @@ const form = reactive({
   strip_root_dir: true, entry: '', post_install: '',
 });
 const file = ref<File | null>(null);
+const installerFile = ref<File | null>(null);
 
 async function load() {
   loading.value = true;
@@ -61,6 +62,7 @@ async function submit() {
   if (form.post_install) fd.append('post_install', form.post_install);
   if (form.mode === 'external') fd.append('external_url', form.external_url);
   else fd.append('file', file.value!);
+  if (installerFile.value) fd.append('installer', installerFile.value);
 
   uploading.value = true;
   try {
@@ -175,6 +177,9 @@ const statusMeta: Record<string, { type: any; label: string }> = {
               <el-tag v-if="row.package_type" size="small" type="info" style="margin-left: 4px">
                 {{ row.package_type }}
               </el-tag>
+              <el-tag v-if="row.has_installer" size="small" type="success" plain style="margin-left: 4px">
+                含安装包
+              </el-tag>
             </div>
           </template>
           <a v-else-if="row.external_url" :href="row.external_url" target="_blank" class="mono">{{ row.external_url }}</a>
@@ -224,6 +229,17 @@ const statusMeta: Record<string, { type: any; label: string }> = {
         </el-form-item>
         <el-form-item v-else label="下载地址">
           <el-input v-model="form.external_url" placeholder="https://cdn.example.com/app-1.2.0.exe" />
+        </el-form-item>
+        <el-form-item label="完整安装包">
+          <el-upload :auto-upload="false" :limit="1" :show-file-list="true"
+                     :on-change="(f: any) => (installerFile = f.raw)"
+                     :on-remove="() => (installerFile = null)">
+            <el-button>选择文件</el-button>
+          </el-upload>
+          <div class="sub tip">
+            选填。给新用户在分发页下载的完整包（含启动器等更新包里没有的东西）。
+            上面的安装包是给老用户自动更新用的，两者可以不同。
+          </div>
         </el-form-item>
         <el-form-item label="包形态">
           <el-radio-group v-model="form.package_type">

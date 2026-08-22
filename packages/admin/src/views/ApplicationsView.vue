@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { onMounted, reactive, ref } from 'vue';
-import { del, get, patch, post } from '@/api/http';
+import { computed, onMounted, reactive, ref } from 'vue';
+import { del, get, patch, post, put } from '@/api/http';
 import type { Application, Paged } from '@/api/types';
 import { useAuthStore } from '@/stores/auth';
 import AppPluginsPanel from '@/components/AppPluginsPanel.vue';
@@ -141,6 +141,49 @@ async function openControl(row: Application) {
   ctlVisible.value = true;
 }
 
+// ---- 分发页 ----
+const distVisible = ref(false);
+const distApp = ref<Application | null>(null);
+const dist = reactive({
+  enabled: false, slug: '', title: '', tagline: '', logo_url: '', intro: '',
+  purchase_url: '', support_qq: '', support_wechat: '', support_email: '',
+  require_license: true, show_changelog: true, download_count: 0, url_path: '',
+});
+
+async function openDist(row: Application) {
+  distApp.value = row;
+  const d = await get<any>(`/admin/applications/${row.id}/dist-site`);
+  Object.assign(dist, {
+    enabled: d.enabled, slug: d.slug, title: d.title ?? '', tagline: d.tagline ?? '',
+    logo_url: d.logo_url ?? '', intro: d.intro ?? '', purchase_url: d.purchase_url ?? '',
+    support_qq: d.support_qq ?? '', support_wechat: d.support_wechat ?? '',
+    support_email: d.support_email ?? '', require_license: d.require_license,
+    show_changelog: d.show_changelog, download_count: d.download_count, url_path: d.url_path,
+  });
+  distVisible.value = true;
+}
+
+const distUrl = computed(() => `${location.origin}${dist.url_path || '/d/' + dist.slug}`);
+
+async function saveDist() {
+  if (!distApp.value) return;
+  const d = await put<any>(`/admin/applications/${distApp.value.id}/dist-site`, {
+    enabled: dist.enabled, slug: dist.slug, title: dist.title || undefined,
+    tagline: dist.tagline || undefined, logo_url: dist.logo_url || undefined,
+    intro: dist.intro || undefined, purchase_url: dist.purchase_url || undefined,
+    support_qq: dist.support_qq || undefined, support_wechat: dist.support_wechat || undefined,
+    support_email: dist.support_email || undefined,
+    require_license: dist.require_license, show_changelog: dist.show_changelog,
+  });
+  dist.url_path = d.url_path;
+  ElMessage.success(dist.enabled ? '分发页已更新' : '分发页已保存（当前未开启）');
+}
+
+async function copyDistUrl() {
+  await navigator.clipboard.writeText(distUrl.value);
+  ElMessage.success('链接已复制');
+}
+
 async function copyPubKey() {
   await navigator.clipboard.writeText(ctlApp.value?.update_sign_public_key ?? '');
   ElMessage.success('公钥已复制，粘贴到客户端代码里');
@@ -210,6 +253,7 @@ async function saveControl() {
           <el-button v-if="auth.can('application:control')" size="small" type="warning" plain @click="openControl(row)">
             远程管控
           </el-button>
+          <el-button size="small" @click="openDist(row)">分发页</el-button>
           <el-dropdown v-if="auth.can('application:write')" style="margin-left:6px;vertical-align:middle">
             <el-button size="small" text><el-icon><MoreFilled /></el-icon></el-button>
             <template #dropdown>
@@ -262,6 +306,69 @@ async function saveControl() {
 
     <CredentialsDialog v-model="credVisible" :title="cred.title" :plugin-id="cred.pluginId"
                        :token="cred.token" :secret="cred.secret" :hint="cred.hint" />
+
+    <!-- 分发页 -->
+    <el-drawer v-model="distVisible" :title="`分发页 — ${distApp?.name ?? ''}`" size="560px">
+      <el-alert type="info" :closable="false" style="margin-bottom:16px"
+                title="给新用户下载安装包的对外页面。开启后任何人都能访问这个链接，页面本身不含任何后台信息" />
+
+      <el-form label-width="110px">
+        <el-form-item label="开启分发页">
+          <el-switch v-model="dist.enabled" />
+          <span class="sub" style="margin-left:10px">关闭后链接立即失效，返回 404</span>
+        </el-form-item>
+        <el-form-item label="链接名">
+          <el-input v-model="dist.slug" placeholder="小写字母、数字、下划线、短横线" />
+          <div class="pubkey-box" style="margin-top:8px">
+            <code class="mono">{{ distUrl }}</code>
+            <el-button size="small" @click="copyDistUrl">复制</el-button>
+          </div>
+        </el-form-item>
+
+        <el-divider content-position="left">页面内容</el-divider>
+        <el-form-item label="标题">
+          <el-input v-model="dist.title" placeholder="留空则用应用名称" />
+        </el-form-item>
+        <el-form-item label="一句话简介">
+          <el-input v-model="dist.tagline" placeholder="显示在标题下方" />
+        </el-form-item>
+        <el-form-item label="Logo 地址">
+          <el-input v-model="dist.logo_url" placeholder="选填，https:// 开头的图片地址" />
+        </el-form-item>
+        <el-form-item label="使用说明">
+          <el-input v-model="dist.intro" type="textarea" :rows="6"
+                    placeholder="支持 ## 标题、- 列表、**粗体**、`代码`" />
+          <div class="sub tip">安装步骤、常见问题写在这里。会原样转义，写 HTML 不会被执行</div>
+        </el-form-item>
+        <el-form-item label="购卡链接">
+          <el-input v-model="dist.purchase_url" placeholder="选填，指向你的发卡网或店铺" />
+        </el-form-item>
+
+        <el-divider content-position="left">客服方式</el-divider>
+        <el-form-item label="QQ"><el-input v-model="dist.support_qq" /></el-form-item>
+        <el-form-item label="微信"><el-input v-model="dist.support_wechat" /></el-form-item>
+        <el-form-item label="邮箱"><el-input v-model="dist.support_email" /></el-form-item>
+
+        <el-divider content-position="left">访问控制</el-divider>
+        <el-form-item label="需要卡密">
+          <el-switch v-model="dist.require_license" />
+          <span class="sub" style="margin-left:10px">
+            {{ dist.require_license ? '先验卡密才给下载地址' : '任何人都能直接下载' }}
+          </span>
+        </el-form-item>
+        <el-form-item label="显示更新日志">
+          <el-switch v-model="dist.show_changelog" />
+        </el-form-item>
+        <el-form-item label="累计下载">
+          <span class="mono">{{ dist.download_count }}</span>
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="distVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveDist">保存</el-button>
+      </template>
+    </el-drawer>
 
     <!-- 远程管控 -->
     <el-drawer v-model="ctlVisible" :title="`远程管控 — ${ctlApp?.name ?? ''}`" size="560px">

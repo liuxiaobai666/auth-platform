@@ -148,4 +148,8 @@ export interface Release {
   entry?: string | null;
   post_install?: string | null;
   signed?: boolean;
+  installer_name?: string | null;
+  installer_size?: number | null;
+  installer_sha256?: string | null;
+  has_installer?: boolean;
 }

@@ -4,7 +4,10 @@ bin/
 obj/
 __pycache__/
 *.egg-info/
-dist/
+# 构建产物。只匹配包根目录下的 dist，
+# 否则会连 src/modules/dist 这种正经源码目录一起忽略掉。
+/dist/
+packages/*/dist/
 .env
 .env.local
 *.log

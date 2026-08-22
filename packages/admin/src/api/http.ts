@@ -52,6 +52,10 @@ export async function get<T>(url: string, params?: Record<string, unknown>): Pro
 export async function post<T>(url: string, body?: unknown, config?: any): Promise<T> {
   return (await http.post<T>(url, body, config)).data;
 }
+export async function put<T>(url: string, body?: unknown): Promise<T> {
+  return (await http.put<T>(url, body)).data;
+}
+
 export async function patch<T>(url: string, body?: unknown): Promise<T> {
   return (await http.patch<T>(url, body)).data;
 }
