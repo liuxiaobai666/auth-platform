@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import urllib.error
 import urllib.request
 import zipfile
 
@@ -199,13 +200,17 @@ class Updater(object):
     :param keep_versions: 保留几个历史版本，用于回滚
     """
 
-    def __init__(self, root, public_key, keep_versions=2, timeout=60):
+    def __init__(self, root, public_key, keep_versions=2, timeout=60, user_agent=None):
         if not public_key:
             _fail("必须提供验签公钥：没有它就无法判断安装包是否被篡改")
         self.root = os.path.abspath(root)
         self.public_key = public_key
         self.keep_versions = max(1, int(keep_versions))
         self.timeout = timeout
+        # 不设 UA 的话 urllib 会发 "Python-urllib/3.x"，Cloudflare 之类的
+        # 浏览器完整性检查会直接判成机器人并返回 403，下载根本到不了服务端。
+        # 传成和授权请求一致的 UA 最稳，WAF 规则只需放行一个标识。
+        self.user_agent = user_agent or "jc-kami-updater/1.0"
 
     # ------------------------------------------------------------------ 路径
 
@@ -283,7 +288,11 @@ class Updater(object):
         digest = hashlib.sha256()
         received = 0
         try:
-            with urllib.request.urlopen(plan.download_url, timeout=self.timeout) as response:
+            request = urllib.request.Request(
+                plan.download_url,
+                headers={"User-Agent": self.user_agent, "Accept": "*/*"},
+            )
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 declared = response.headers.get("Content-Length")
                 if plan.file_size and declared and int(declared) != plan.file_size:
                     # 服务端报的长度和签名里的大小对不上，一个字节都不用收
@@ -304,8 +313,17 @@ class Updater(object):
                             progress(received, total)
         except LicenseError:
             raise
+        except urllib.error.HTTPError as exc:
+            if exc.code == 403:
+                # 多半不是服务端拒绝，而是前面的 CDN/WAF 把非浏览器请求拦了
+                _fail(
+                    "下载安装包被拒绝（HTTP 403）。若域名走了 CDN/WAF（如 Cloudflare），"
+                    "请放行 /api/v1/releases/*/download，或关闭对非浏览器 User-Agent 的拦截。",
+                    ErrorCode.NETWORK_UNAVAILABLE,
+                )
+            _fail("下载更新包失败：HTTP %s" % exc.code, ErrorCode.NETWORK_UNAVAILABLE)
         except Exception as exc:  # noqa: BLE001 - 网络异常种类多，统一转成 SDK 错误
-            _fail("下载更新包失败：%s" % exc, ErrorCode.NETWORK_ERROR)
+            _fail("下载更新包失败：%s" % exc, ErrorCode.NETWORK_UNAVAILABLE)
 
         if plan.file_size and received != plan.file_size:
             _fail("下载不完整：期望 %s 字节，实际 %s 字节" % (plan.file_size, received))
