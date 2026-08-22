@@ -21,6 +21,35 @@ namespace JcKami
 
         [JsonPropertyName("release_notes")] public string ReleaseNotes { get; set; }
         [JsonPropertyName("mandatory")] public bool Mandatory { get; set; }
+
+        /// <summary>安装包形态与安装策略。</summary>
+        [JsonPropertyName("package")] public PackagePolicy Package { get; set; }
+
+        /// <summary>
+        /// 平台用应用私钥对「版本 + 哈希 + 大小」签的 Ed25519 签名（base64）。
+        /// 哈希只能防传输损坏，防不了篡改 —— 能改安装包的人同样能改哈希，
+        /// 只有私钥签的名他伪造不了。
+        /// </summary>
+        [JsonPropertyName("signature")] public string Signature { get; set; }
+    }
+
+    /// <summary>安装包描述。</summary>
+    public class PackagePolicy
+    {
+        /// <summary>zip / onefile / onedir</summary>
+        [JsonPropertyName("type")] public string Type { get; set; }
+
+        /// <summary>versioned（版本目录 + 指针切换）/ replace / notify（交给宿主自己处理）</summary>
+        [JsonPropertyName("install_strategy")] public string InstallStrategy { get; set; }
+
+        /// <summary>压缩包外层多套了一层目录时，解压后剥掉它。</summary>
+        [JsonPropertyName("strip_root_dir")] public bool StripRootDir { get; set; }
+
+        /// <summary>入口可执行文件名，例如 app.exe。</summary>
+        [JsonPropertyName("entry")] public string Entry { get; set; }
+
+        /// <summary>安装后命令。不在签名保护范围内，SDK 默认不执行。</summary>
+        [JsonPropertyName("post_install")] public string PostInstall { get; set; }
     }
 
     /// <summary>公告。</summary>

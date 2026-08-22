@@ -9,6 +9,10 @@
     "ext-json": "*",
     "ext-hash": "*"
   },
+  "suggest": {
+    "ext-sodium": "远程更新验签必需（PHP 7.2+ 内置）。缺失时 Updater 会直接抛错，不会跳过验签",
+    "ext-zip": "远程更新解压必需"
+  },
   "autoload": {
     "psr-4": { "JcKami\\": "src/" }
   },

@@ -138,4 +138,64 @@ export class CryptoService implements OnModuleInit {
     const digest = crypto.createHash('sha256').update(`${seed}:${key}`).digest();
     return digest.readUInt32BE(0) % buckets;
   }
+
+  // ---------------- 更新包签名（Ed25519） ----------------
+
+  /**
+   * 生成一对更新包签名密钥。
+   * 公钥以裸 32 字节 base64 返回，各语言的 Ed25519 库都能直接吃；
+   * 私钥以 PKCS8 DER base64 返回，交由调用方加密后落库。
+   */
+  generateSignKeyPair(): { publicKey: string; privateKey: string } {
+    const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
+    const spki = publicKey.export({ format: 'der', type: 'spki' }) as Buffer;
+    return {
+      // SPKI DER 的后 32 字节就是裸公钥，前 12 字节是固定算法头
+      publicKey: spki.subarray(spki.length - 32).toString('base64'),
+      privateKey: (privateKey.export({ format: 'der', type: 'pkcs8' }) as Buffer).toString('base64'),
+    };
+  }
+
+  /**
+   * 构造被签名的载荷。
+   *
+   * 连版本号和文件大小一起签，而不是只签哈希：
+   * 只签哈希挡不住「拿旧版本的合法签名冒充新版本」的回滚攻击。
+   * 前缀用于域分隔，避免这个签名被挪到别处复用。
+   */
+  releaseSignPayload(appId: string, version: string, sha256: string, fileSize: number): string {
+    return ['jc-kami-release-v1', appId, version, sha256, String(fileSize)].join('\n');
+  }
+
+  /** 用 PKCS8 DER base64 私钥签名，返回 base64 签名。 */
+  signRelease(privateKeyDerB64: string, payload: string): string {
+    const key = crypto.createPrivateKey({
+      key: Buffer.from(privateKeyDerB64, 'base64'),
+      format: 'der',
+      type: 'pkcs8',
+    });
+    return crypto.sign(null, Buffer.from(payload, 'utf8'), key).toString('base64');
+  }
+
+  /** 用裸 32 字节 base64 公钥验签。客户端做的就是这一步。 */
+  verifyRelease(publicKeyRawB64: string, payload: string, signatureB64: string): boolean {
+    try {
+      const raw = Buffer.from(publicKeyRawB64, 'base64');
+      if (raw.length !== 32) return false;
+      // 裸公钥补回 SPKI DER 头才能交给 Node 的 crypto
+      const der = Buffer.concat([
+        Buffer.from('302a300506032b6570032100', 'hex'),
+        raw,
+      ]);
+      const key = crypto.createPublicKey({ key: der, format: 'der', type: 'spki' });
+      return crypto.verify(
+        null,
+        Buffer.from(payload, 'utf8'),
+        key,
+        Buffer.from(signatureB64, 'base64'),
+      );
+    } catch {
+      return false;
+    }
+  }
 }

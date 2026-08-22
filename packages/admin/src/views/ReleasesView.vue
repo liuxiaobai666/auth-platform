@@ -17,6 +17,9 @@ const form = reactive({
   application_id: '', version: '', channel: 'stable' as 'stable' | 'beta',
   release_notes: '', is_mandatory: false, rollout_percent: 100,
   external_url: '', mode: 'upload' as 'upload' | 'external',
+  package_type: 'zip' as 'zip' | 'onefile' | 'onedir',
+  install_strategy: 'versioned' as 'versioned' | 'replace' | 'notify',
+  strip_root_dir: true, entry: '', post_install: '',
 });
 const file = ref<File | null>(null);
 
@@ -51,6 +54,11 @@ async function submit() {
   fd.append('release_notes', form.release_notes);
   fd.append('is_mandatory', String(form.is_mandatory));
   fd.append('rollout_percent', String(form.rollout_percent));
+  fd.append('package_type', form.package_type);
+  fd.append('install_strategy', form.install_strategy);
+  fd.append('strip_root_dir', String(form.strip_root_dir));
+  if (form.entry) fd.append('entry', form.entry);
+  if (form.post_install) fd.append('post_install', form.post_install);
   if (form.mode === 'external') fd.append('external_url', form.external_url);
   else fd.append('file', file.value!);
 
@@ -161,6 +169,13 @@ const statusMeta: Record<string, { type: any; label: string }> = {
           <template v-if="row.file_name">
             <div>{{ row.file_name }}（{{ fmtSize(row.file_size) }}）</div>
             <div class="mono sub" :title="row.sha256">sha256: {{ row.sha256?.slice(0, 24) }}…</div>
+            <div>
+              <el-tag v-if="row.signed" type="success" size="small">已签名</el-tag>
+              <el-tag v-else-if="row.status === 'published'" type="danger" size="small">未签名</el-tag>
+              <el-tag v-if="row.package_type" size="small" type="info" style="margin-left: 4px">
+                {{ row.package_type }}
+              </el-tag>
+            </div>
           </template>
           <a v-else-if="row.external_url" :href="row.external_url" target="_blank" class="mono">{{ row.external_url }}</a>
           <span v-else class="sub">—</span>
@@ -210,6 +225,42 @@ const statusMeta: Record<string, { type: any; label: string }> = {
         <el-form-item v-else label="下载地址">
           <el-input v-model="form.external_url" placeholder="https://cdn.example.com/app-1.2.0.exe" />
         </el-form-item>
+        <el-form-item label="包形态">
+          <el-radio-group v-model="form.package_type">
+            <el-radio-button value="onedir">目录包</el-radio-button>
+            <el-radio-button value="onefile">单文件</el-radio-button>
+            <el-radio-button value="zip">通用压缩包</el-radio-button>
+          </el-radio-group>
+          <div class="sub tip">PyInstaller --onedir 选「目录包」，--onefile 选「单文件」</div>
+        </el-form-item>
+        <el-form-item label="安装策略">
+          <el-select v-model="form.install_strategy" style="width: 100%">
+            <el-option value="versioned" label="版本目录切换（推荐，可回滚）" />
+            <el-option value="replace" label="原地覆盖" />
+            <el-option value="notify" label="只通知，不自动安装" />
+          </el-select>
+          <div class="sub tip">
+            版本目录切换：新版装进独立目录再切指针，中途失败不影响老版本，出问题可秒回滚
+          </div>
+        </el-form-item>
+        <template v-if="form.install_strategy !== 'notify'">
+          <el-form-item label="剥掉外层目录">
+            <el-switch v-model="form.strip_root_dir" />
+            <span class="sub tip">
+              压缩包里如果套了一层 YourApp/ 就剥掉。平铺结构会自动跳过，不会误删文件
+            </span>
+          </el-form-item>
+          <el-form-item label="启动入口">
+            <el-input v-model="form.entry" placeholder="app.exe / main.js / index.php" />
+          </el-form-item>
+          <el-form-item label="安装后命令">
+            <el-input v-model="form.post_install" placeholder="选填，如 pip install -r requirements.txt" />
+            <div class="sub tip warn">
+              这条命令会在用户机器上执行，且不在签名保护范围内。客户端 SDK 默认不执行它，
+              需接入方显式开启，请确认清楚再填。
+            </div>
+          </el-form-item>
+        </template>
         <el-form-item label="更新说明">
           <el-input v-model="form.release_notes" type="textarea" :rows="3" />
         </el-form-item>

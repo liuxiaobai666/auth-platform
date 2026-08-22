@@ -415,7 +415,8 @@ def handle_policy(policy):
 - `APP_MAINTENANCE` —— 维护中，只拦新激活，已激活设备的 `verify` 不受影响
 - `CLIENT_VERSION_TOO_LOW` —— 版本过低，引导下载新版
 
-下载安装包后**务必校验 SHA-256** 再执行，策略里的 `upgrade.sha256` 就是给这个用的。
+下载安装包后**务必验签再执行**，只校验 SHA-256 是不够的：能替换安装包的人同样能替换哈希值。
+完整做法见 [7.6 远程更新](#76-远程更新自动升级)。
 
 ---
 
@@ -484,6 +485,178 @@ try {
 
 `verify` 只判断"还能不能用"，**不扣次数**，可以频繁调。次数消费必须显式调 `consume`/`reserve`，
 在你"真正用掉一次功能"的时候。别把扣减放进启动校验里，否则每次开机都会误扣。
+
+## 7.6 远程更新（自动升级）
+
+平台负责三件事：**托管安装包、通知有新版、给包签名**。
+真正把新版装上去由 SDK 完成，安装策略由发布时的配置决定。
+
+### 核心思路：版本目录 + 指针切换
+
+不要往正在运行的目录里解压——运行中的 exe 覆盖不了自己，解压到一半断电还会把用户的软件搞成半新半旧。
+正确做法是每个版本独立成目录，用一个指针决定跑哪个：
+
+```
+YourApp/
+├── launcher.exe        ← 小启动器，快捷方式指向它，本身几乎不用更新
+├── current.txt         ← 内容是版本号，如 1.2.0
+├── versions/
+│   ├── 1.1.0/          ← 旧版留着，出问题可秒回滚
+│   └── 1.2.0/app.exe   ← 新版
+└── data/               ← 用户数据放外面，更新永不触碰
+```
+
+更新流程：下载 → 校验哈希 → **验签** → 解压到 `versions/新版本` → 改指针 → 重启。
+任何一步失败，指针都没动，老版本照常能跑。
+
+Chrome、VS Code、Discord 用的都是这个结构，不是我们发明的。
+
+### 签名：为什么哈希不够
+
+`upgrade.sha256` 只能防传输损坏，**防不了篡改**——哈希和安装包走同一条链路，能改包的人就能改哈希。
+所以每个发布的版本都带一份 **Ed25519 签名**，签的是这串内容：
+
+```
+jc-kami-release-v1\n{app_id}\n{version}\n{sha256}\n{file_size}
+```
+
+连版本号一起签，是为了防「拿旧版本的合法签名冒充新版本」的回滚攻击。
+
+私钥只存在服务端（加密存储，任何接口都不返回），公钥在后台
+**应用 → 远程管控 → 更新验签公钥** 里复制。
+
+> ⚠️ **公钥必须硬编码进客户端代码**。绝不能从服务器下载——那样篡改响应的人可以连公钥一起换掉，验签就完全失效了。这是整套机制的根基。
+
+### 发布一个新版本
+
+1. **改客户端里的版本号**再打包。服务端靠版本号比大小判断谁是旧版，不改号就不会提示更新。
+2. 后台 **版本发布 → 新建版本**，上传安装包，填：
+   - **版本号** —— 要比线上高
+   - **包形态** —— PyInstaller `--onedir` 选「目录包」，`--onefile` 选「单文件」
+   - **安装策略** —— 一般选「版本目录切换」
+   - **剥掉外层目录** —— 压缩包里套了一层 `YourApp/` 就打开
+   - **启动入口** —— `app.exe` / `main.js` / `index.php`
+   - **强制升级 / 灰度放量** —— 按需
+3. 点**发布**。这一刻服务端才生成签名，老客户端下次拉策略就能收到。
+
+灰度建议：先放量 10%，观察一天没问题再拉到 100%。分桶按设备指纹算，同一台机器不会反复横跳。
+
+### 策略里的更新信息
+
+```json
+"upgrade": {
+  "available": true,           // 有新版
+  "required": false,           // 为真则不升级就不给用
+  "latest_version": "1.2.0",
+  "download_url": "https://…/api/v1/releases/rel_xxx/download",
+  "sha256": "…", "file_size": 55600000,
+  "signature": "base64 签名",
+  "package": {
+    "type": "onedir",
+    "install_strategy": "versioned",
+    "strip_root_dir": true,
+    "entry": "app.exe",
+    "post_install": null
+  }
+}
+```
+
+### SDK 用法
+
+四种语言接口一致，只是命名随各自习惯。
+
+**Python**
+```python
+from jc_kami import LicenseClient, Updater
+
+PUBLIC_KEY = "后台复制的公钥"   # 硬编码，不要从网络读
+
+client = LicenseClient(app_id="myapp", server_url="https://auth.example.com", ...)
+plan = client.check_update(current_version="1.1.0")
+
+if plan.available:
+    updater = Updater(root="D:/YourApp", public_key=PUBLIC_KEY)
+    result = updater.apply(plan, progress=lambda got, total: print(f"{got}/{total}"))
+    if result.applied:
+        updater.restart()      # 启动 launcher 后自己退出
+```
+
+**Node**
+```javascript
+const plan = await client.checkUpdate('1.1.0');
+if (plan.available) {
+  const result = await new Updater({ root, publicKey: PUBLIC_KEY }).apply(plan);
+}
+```
+
+**C#**
+```csharp
+var plan = await client.CheckUpdateAsync("1.1.0");
+if (plan.Available) {
+    var result = await new Updater(root, PublicKey).ApplyAsync(plan);
+}
+```
+
+**PHP**（服务端场景，通常只准备不切换）
+```php
+$plan = $client->checkUpdate('1.1.0');
+if ($plan->available) {
+    // 下载+验签+解压到新版本目录，但不切指针
+    $updater->stage($plan);
+    // 指针切换交给部署脚本，避开正在处理的请求
+}
+```
+
+SDK 内部做了这些，不用你操心：断点校验、sha256 比对、**验签失败拒装**、
+路径穿越防护、原子切换、旧版本清理（默认保留 2 个可回滚）。
+
+### Python + PyInstaller 实操
+
+用 `--onedir`（启动快、将来能做增量更新）：
+
+```bash
+# 1. 打包主程序，版本号记得先改
+pyinstaller --onedir --noconsole --name app main.py
+
+# 2. 把 dist/app 目录打成 zip 上传（zip 里是单层 app/ 或直接平铺，两种都支持）
+cd dist && zip -r YourApp-1.2.0.zip app
+```
+
+启动器只需打包一次，以后不用再动：
+
+```bash
+# 模板在 packages/sdk-python/templates/launcher.py
+pyinstaller --onefile --noconsole --name launcher launcher.py
+```
+
+把 `launcher.exe` 放在应用根目录，用户的快捷方式指向它。它会读 `current.txt` 启动对应版本；
+指针失效或那个版本坏了，会自动退到其他可用版本，不至于让用户面对一个打不开的软件。
+
+### 签名保护到哪为止
+
+签名覆盖的只有这四项：`app_id`、`version`、`sha256`、`file_size`。
+换句话说，**安装包内容本身是不可篡改的**——包被换、版本被冒充、大小被改，验签都会失败。
+
+但 `package` 里的安装参数（`entry`、`install_strategy`、`strip_root_dir`、`post_install`）
+**不在签名范围内**。能篡改 policy 响应的人可以改动它们，所以 SDK 按"不可信输入"处理：
+
+| 字段 | 被篡改的后果 | SDK 的防护 |
+|------|-------------|-----------|
+| `post_install` | 在用户机器上任意执行命令 | **默认不执行**，需显式开启 |
+| `entry` | 写文件到目录外 | 只取文件名部分，丢掉路径 |
+| `strip_root_dir` | 解压布局错乱 | 路径穿越防护兜底，最坏是装出来跑不了 |
+| `install_strategy` | 跳过安装 | 属于拒绝服务，不造成越权 |
+
+真正危险的只有 `post_install`，而它默认就是关的。
+
+### 几个要留心的地方
+
+- **`post_install` 默认不执行**。理由见上表：它不在签名保护内，开启等于允许服务端在用户机器上执行任意命令。确需使用请自行评估风险。
+- **登记外部下载地址的版本拿不到签名**（服务端算不出哈希），SDK 会拒装。要用签名保护就把包传到平台。
+- **用户数据别放版本目录里**，放 `data/` 或系统用户目录，否则更新后会"丢配置"。
+- **强制升级要留退路**：`required` 为真时客户端应阻断启动，但要把下载地址显示出来，别让用户卡死。
+
+---
 
 ## 8. 两种典型场景
 

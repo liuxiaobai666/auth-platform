@@ -76,6 +76,8 @@ export class ApplicationsService {
     const exists = await this.prisma.application.findUnique({ where: { appId: dto.app_id } });
     if (exists) throw new AppException(ErrorCode.CONFLICT, `app_id「${dto.app_id}」已被占用`);
 
+    // 建应用时就生成更新包签名密钥：开发者打包客户端之前就得拿到公钥内置进去
+    const signKeys = this.crypto.generateSignKeyPair();
     const app = await this.prisma.application.create({
       data: {
         id: this.crypto.genId('app'),
@@ -83,6 +85,8 @@ export class ApplicationsService {
         name: dto.name,
         type: (dto.type ?? 'windows') as any,
         remark: dto.remark ?? null,
+        updateSignPublicKey: signKeys.publicKey,
+        updateSignPrivateKey: this.crypto.encrypt(signKeys.privateKey),
       },
     });
 
@@ -226,6 +230,9 @@ export class ApplicationsService {
         notice_content: a.noticeContent,
         policy_ttl_seconds: a.policyTtlSeconds,
       },
+      // 更新包验签公钥。公钥本就是公开信息，开发者要把它内置进客户端；
+      // 对应私钥只以密文留在服务端，任何接口都不会返回。
+      update_sign_public_key: a.updateSignPublicKey,
     };
   }
 }

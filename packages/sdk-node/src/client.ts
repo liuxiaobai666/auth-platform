@@ -4,6 +4,7 @@ import * as path from 'path';
 import { resolveDeviceId } from './device';
 import { LicenseError, LicenseErrorCode } from './errors';
 import { LicenseState, SecureStorage } from './storage';
+import { UpdatePlan } from './updater';
 import {
   ActivateResult, AppPolicy, ConfirmResult, LicenseOptions, ReserveResult, StatusResult, VerifyResult,
 } from './types';
@@ -175,13 +176,25 @@ export class LicenseClient {
   }
 
   /** 拉取远程管控策略。未激活时也能调用，用于开机就问「我还能不能跑」。 */
-  async fetchPolicy(): Promise<AppPolicy> {
+  async fetchPolicy(clientVersion?: string): Promise<AppPolicy> {
     const query = new URLSearchParams({ app_id: this.opts.appId, device_id: this.deviceId });
-    if (this.opts.clientVersion) query.set('client_version', this.opts.clientVersion);
+    const version = clientVersion ?? this.opts.clientVersion;
+    if (version) query.set('client_version', version);
     if (this.opts.channel) query.set('channel', this.opts.channel);
     const res = await this.request<{ policy: AppPolicy }>('GET', `/api/v1/license/policy?${query}`);
     this.opts.onPolicy?.(res.policy);
     return res.policy;
+  }
+
+  /**
+   * 问一句「有没有新版本」，返回可直接交给 Updater 的 UpdatePlan。
+   *
+   * 注意这一步只是拿到描述，真正装不装、什么时候装由调用方决定；
+   * Updater.apply 会在安装前重新验签，不会因为这里说有新版就无条件信任。
+   */
+  async checkUpdate(currentVersion?: string): Promise<UpdatePlan> {
+    const policy = await this.fetchPolicy(currentVersion);
+    return new UpdatePlan(this.opts.appId, policy?.upgrade);
   }
 
   /** 本地是否存有激活凭据。只是个快速判断，不代表授权仍然有效。 */

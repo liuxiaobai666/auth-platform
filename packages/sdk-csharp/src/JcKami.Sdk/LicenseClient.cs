@@ -199,13 +199,19 @@ namespace JcKami
         }
 
         /// <summary>拉取远程管控策略。未激活时也能调用。</summary>
-        public async Task<AppPolicy> FetchPolicyAsync(CancellationToken ct = default)
+        public Task<AppPolicy> FetchPolicyAsync(CancellationToken ct = default)
+            => FetchPolicyAsync(null, ct);
+
+        /// <summary>拉取远程管控策略，并临时用 <paramref name="clientVersion"/> 覆盖上报的版本号。</summary>
+        public async Task<AppPolicy> FetchPolicyAsync(string clientVersion, CancellationToken ct)
         {
             var query = new Dictionary<string, string>
             {
                 ["app_id"] = _opts.AppId,
                 ["device_id"] = DeviceId,
-                ["client_version"] = _opts.ClientVersion,
+                ["client_version"] = string.IsNullOrEmpty(clientVersion)
+                    ? _opts.ClientVersion
+                    : clientVersion,
                 ["channel"] = _opts.Channel,
             };
 
@@ -215,6 +221,20 @@ namespace JcKami
 
             PolicyReceived?.Invoke(env.Policy);
             return env.Policy;
+        }
+
+        /// <summary>
+        /// 问一句「有没有新版本」，返回可直接交给 <see cref="Updater"/> 的更新计划。
+        ///
+        /// 注意这一步只是拿到描述，真正装不装、什么时候装由调用方决定；
+        /// <see cref="Updater.ApplyAsync"/> 会在安装前重新验签，
+        /// 不会因为这里说有新版就无条件信任。
+        /// </summary>
+        public async Task<UpdatePlan> CheckUpdateAsync(
+            string currentVersion = null, CancellationToken ct = default)
+        {
+            var policy = await FetchPolicyAsync(currentVersion, ct).ConfigureAwait(false);
+            return new UpdatePlan(_opts.AppId, policy?.Upgrade);
         }
 
         /// <summary>本地是否存有激活凭据。只是个快速判断，不代表授权仍然有效。</summary>

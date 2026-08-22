@@ -214,6 +214,7 @@ SDK 负责设备指纹、请求签名、令牌加密存储、离线宽限期和�
 | `python3 packages/sdk-python/tests/integration_test.py` | Python SDK 联调（需先执行上一行） |
 | `php packages/sdk-php/tests/integration_test.php` | PHP SDK 联调 |
 | `dotnet run --project packages/sdk-csharp/tests/JcKami.Sdk.IntegrationTests` | C# SDK 联调 |
+| `dotnet run --project packages/sdk-csharp/tests/JcKami.Sdk.UpdateTests` | C# SDK 远程更新联调（自建应用与更新包，无需前置脚本） |
 
 > 联调脚本会在你指向的那个库里创建 `sdk_demo` 应用和一批卡密。
 > 测完想恢复空白状态，跑 `bash scripts/cleanup-demo-data.sh` 即可，它会保留管理员账号。

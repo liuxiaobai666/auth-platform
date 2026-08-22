@@ -129,6 +129,11 @@ async function openControl(row: Application) {
   ctlVisible.value = true;
 }
 
+async function copyPubKey() {
+  await navigator.clipboard.writeText(ctlApp.value?.update_sign_public_key ?? '');
+  ElMessage.success('公钥已复制，粘贴到客户端代码里');
+}
+
 async function saveControl() {
   // 熔断是最高危的操作，必须再确认一次
   if (ctl.kill_switch && !ctlApp.value?.kill_switch) {
@@ -289,6 +294,16 @@ async function saveControl() {
         </el-form-item>
       </el-form>
 
+      <el-divider content-position="left">更新验签公钥</el-divider>
+      <el-alert type="warning" :closable="false" style="margin-bottom:12px"
+                title="把这串公钥内置进你的客户端代码，用于安装更新前验签。它必须写死在客户端里——若改成从服务器下载，篡改响应的人就能连公钥一起换掉，验签将形同虚设。" />
+      <div class="pubkey-box">
+        <code class="mono">{{ ctlApp?.update_sign_public_key || '（尚未生成）' }}</code>
+        <el-button size="small" :disabled="!ctlApp?.update_sign_public_key"
+                   @click="copyPubKey">复制</el-button>
+      </div>
+      <div class="sub">对应私钥只以密文存在服务端，任何接口都不会返回。发布版本时由服务端自动签名。</div>
+
       <el-divider content-position="left">公告推送</el-divider>
       <el-form label-width="110px">
         <el-form-item label="启用公告"><el-switch v-model="ctl.notice_enabled" /></el-form-item>
@@ -314,3 +329,20 @@ async function saveControl() {
     </el-drawer>
   </div>
 </template>
+
+<style scoped>
+.pubkey-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  background: var(--el-fill-color-light);
+  border-radius: 4px;
+}
+.pubkey-box code {
+  flex: 1;
+  word-break: break-all;
+  font-size: 12px;
+}
+</style>

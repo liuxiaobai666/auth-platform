@@ -98,6 +98,12 @@ model Application {
   // 客户端策略缓存秒数，SDK 据此决定下次拉取策略的间隔
   policyTtlSeconds   Int         @default(300)
 
+  // ---- 更新包签名（Ed25519）----
+  // 私钥加密存储、只在服务端签名时解密；公钥需由开发者内置进客户端做验签。
+  // 公钥绝不通过 policy 下发：否则篡改响应的人可以连公钥一起换掉，验签就形同虚设。
+  updateSignPublicKey  String? @db.VarChar(128)
+  updateSignPrivateKey String? @db.Text
+
   createdAt DateTime @default(now()) @db.DateTime(3)
   updatedAt DateTime @updatedAt @db.DateTime(3)
 
@@ -443,6 +449,18 @@ model AppRelease {
   sha256      String? @db.VarChar(64)
   externalUrl String? @db.VarChar(500)
 
+  // ---- 更新包元数据：告诉客户端「这个包该怎么装」----
+  packageType     PackageType     @default(zip)
+  installStrategy InstallStrategy @default(versioned)
+  // 压缩包里若多套了一层目录（如 dist/YourApp/），解压时剥掉
+  stripRootDir    Boolean         @default(false)
+  // 新版入口：Python/C# 填 app.exe，Node 填 main.js，PHP 填 index.php
+  entry           String?         @db.VarChar(255)
+  // 装完要执行的命令，如 pip install -r requirements.txt
+  postInstall     String?         @db.VarChar(500)
+  // Ed25519 签名（base64）。签的是 版本+哈希+大小，防篡改也防版本回滚
+  signature       String?         @db.VarChar(128)
+
   releaseNotes   String?       @db.Text
   isMandatory    Boolean       @default(false)
   // 0-100，按设备指纹哈希稳定分桶，保证同一设备灰度结果不跳变
@@ -460,6 +478,21 @@ model AppRelease {
   @@unique([applicationId, version, channel])
   @@index([applicationId, status])
   @@map("app_releases")
+}
+
+enum PackageType {
+  zip
+  onefile
+  onedir
+}
+
+enum InstallStrategy {
+  // 解压到独立版本目录后切换指针，可原子回滚（推荐）
+  versioned
+  // 原地覆盖/自替换
+  replace
+  // 只通知有新版，安装交给宿主自己处理（Electron autoUpdater、运维脚本等）
+  notify
 }
 
 enum ReleaseChannel {

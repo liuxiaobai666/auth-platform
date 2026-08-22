@@ -208,17 +208,29 @@ class LicenseClient:
             params["license_id"] = state["license_id"]
         return self._request("GET", "/api/v1/license/status", params=params)
 
-    def fetch_policy(self):
+    def fetch_policy(self, client_version=None):
         """拉取远程管控策略。未激活时也能调用。"""
         params = {"app_id": self.app_id, "device_id": self.device_id}
-        if self.client_version:
-            params["client_version"] = self.client_version
+        version = client_version or self.client_version
+        if version:
+            params["client_version"] = version
         if self.channel:
             params["channel"] = self.channel
         result = self._request("GET", "/api/v1/license/policy", params=params)
         policy = result.get("policy")
         self._emit_policy(policy)
         return policy
+
+    def check_update(self, current_version=None):
+        """问一句「有没有新版本」，返回可直接交给 Updater 的 UpdatePlan。
+
+        注意这一步只是拿到描述，真正装不装、什么时候装由调用方决定；
+        Updater.apply 会在安装前重新验签，不会因为这里说有新版就无条件信任。
+        """
+        from .updater import UpdatePlan
+
+        policy = self.fetch_policy(client_version=current_version) or {}
+        return UpdatePlan(self.app_id, policy.get("upgrade"))
 
     def has_local_license(self):
         """本地是否存有激活凭据。只是个快速判断，不代表授权仍然有效。"""

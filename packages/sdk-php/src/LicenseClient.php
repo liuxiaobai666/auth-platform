@@ -157,18 +157,37 @@ class LicenseClient
         ));
     }
 
-    /** 拉取远程管控策略。未激活时也能调用。 */
-    public function fetchPolicy(?string $deviceId = null): array
+    /**
+     * 拉取远程管控策略。未激活时也能调用。
+     *
+     * @param string|null $clientVersion 临时覆盖构造时的 client_version，
+     *                                   用于「按当前部署版本问一次」而不改客户端配置
+     */
+    public function fetchPolicy(?string $deviceId = null, ?string $clientVersion = null): array
     {
         $result = $this->request('GET', '/api/v1/license/policy', null, [
             'app_id' => $this->appId,
             'device_id' => $deviceId,
-            'client_version' => $this->clientVersion,
+            'client_version' => $clientVersion ?? $this->clientVersion,
             'channel' => $this->channel,
         ]);
 
         $this->emitPolicy($result);
         return $result['policy'] ?? [];
+    }
+
+    /**
+     * 问一句「有没有新版本」，返回可直接交给 {@see Updater} 的 UpdatePlan。
+     *
+     * 这一步只是拿到描述，装不装、什么时候装由调用方决定；
+     * Updater 会在安装前重新校验哈希和签名，不会因为这里说有新版就无条件信任。
+     *
+     * @param string|null $currentVersion 当前部署的版本，服务端据此判断要不要推更新
+     */
+    public function checkUpdate(?string $currentVersion = null, ?string $deviceId = null): UpdatePlan
+    {
+        $policy = $this->fetchPolicy($deviceId, $currentVersion);
+        return new UpdatePlan($this->appId, $policy['upgrade'] ?? null);
     }
 
     // ---------------------------------------------------------------- 内部

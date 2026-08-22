@@ -35,6 +35,7 @@ export interface Application {
   counts?: { plugins: number; plans: number; licenses: number };
   policy?: AppPolicy;
   created_at: string;
+  update_sign_public_key?: string | null;
 }
 
 export interface Plan {
@@ -141,4 +142,10 @@ export interface Release {
   rollout_percent: number;
   download_count: number;
   published_at: string | null;
+  package_type?: 'zip' | 'onefile' | 'onedir';
+  install_strategy?: 'versioned' | 'replace' | 'notify';
+  strip_root_dir?: boolean;
+  entry?: string | null;
+  post_install?: string | null;
+  signed?: boolean;
 }

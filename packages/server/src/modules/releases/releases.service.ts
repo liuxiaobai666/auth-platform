@@ -93,6 +93,11 @@ export class ReleasesService {
         fileSize: file ? BigInt(file.size) : null,
         sha256,
         externalUrl: dto.external_url ?? null,
+        packageType: (dto.package_type ?? 'zip') as any,
+        installStrategy: (dto.install_strategy ?? 'versioned') as any,
+        stripRootDir: dto.strip_root_dir ?? false,
+        entry: dto.entry ?? null,
+        postInstall: dto.post_install ?? null,
         releaseNotes: dto.release_notes ?? null,
         isMandatory: dto.is_mandatory ?? false,
         rolloutPercent: dto.rollout_percent ?? 100,
@@ -116,6 +121,13 @@ export class ReleasesService {
         ...(dto.is_mandatory !== undefined ? { isMandatory: dto.is_mandatory } : {}),
         ...(dto.rollout_percent !== undefined ? { rolloutPercent: dto.rollout_percent } : {}),
         ...(dto.external_url !== undefined ? { externalUrl: dto.external_url } : {}),
+        ...(dto.package_type !== undefined ? { packageType: dto.package_type as any } : {}),
+        ...(dto.install_strategy !== undefined
+          ? { installStrategy: dto.install_strategy as any }
+          : {}),
+        ...(dto.strip_root_dir !== undefined ? { stripRootDir: dto.strip_root_dir } : {}),
+        ...(dto.entry !== undefined ? { entry: dto.entry } : {}),
+        ...(dto.post_install !== undefined ? { postInstall: dto.post_install } : {}),
         ...(dto.status !== undefined
           ? {
               status: dto.status as any,
@@ -140,6 +152,8 @@ export class ReleasesService {
       throw AppException.invalid('该版本既没有安装包也没有下载地址，不能发布');
     }
 
+    const signature = await this.signIfPossible(release);
+
     const [updated] = await this.prisma.$transaction([
       this.prisma.appRelease.update({
         where: { id },
@@ -147,6 +161,7 @@ export class ReleasesService {
           status: 'published',
           publishedAt: release.publishedAt ?? new Date(),
           ...(rolloutPercent !== undefined ? { rolloutPercent } : {}),
+          ...(signature ? { signature } : {}),
         },
         include: { application: { select: { appId: true, name: true } } },
       }),
@@ -156,6 +171,62 @@ export class ReleasesService {
       }),
     ]);
     return this.toDto(updated);
+  }
+
+  /**
+   * 发布时给安装包签名。
+   *
+   * 只有本站托管、算得出哈希的包才签得了；登记的外部 URL 拿不到内容，
+   * 除非上传方自己填了 sha256，否则只能留空，由客户端决定是否接受未签名包。
+   */
+  private async signIfPossible(release: {
+    id: string;
+    applicationId: string;
+    version: string;
+    sha256: string | null;
+    fileSize: bigint | null;
+    signature: string | null;
+  }): Promise<string | null> {
+    if (release.signature) return null; // 已签过就不重签，签名与包内容一一对应
+    if (!release.sha256 || release.fileSize === null) return null;
+
+    const keys = await this.ensureSignKeys(release.applicationId);
+    const payload = this.crypto.releaseSignPayload(
+      keys.appId,
+      release.version,
+      release.sha256,
+      Number(release.fileSize),
+    );
+    return this.crypto.signRelease(keys.privateKey, payload);
+  }
+
+  /**
+   * 取应用的签名密钥，没有就地生成一对。
+   * 私钥只以密文落库，用主密钥加解密；公钥由开发者内置进客户端。
+   */
+  private async ensureSignKeys(
+    applicationId: string,
+  ): Promise<{ appId: string; publicKey: string; privateKey: string }> {
+    const app = await this.prisma.application.findUnique({ where: { id: applicationId } });
+    if (!app) throw AppException.notFound('应用不存在');
+
+    if (app.updateSignPublicKey && app.updateSignPrivateKey) {
+      return {
+        appId: app.appId,
+        publicKey: app.updateSignPublicKey,
+        privateKey: this.crypto.decrypt(app.updateSignPrivateKey),
+      };
+    }
+
+    const pair = this.crypto.generateSignKeyPair();
+    await this.prisma.application.update({
+      where: { id: applicationId },
+      data: {
+        updateSignPublicKey: pair.publicKey,
+        updateSignPrivateKey: this.crypto.encrypt(pair.privateKey),
+      },
+    });
+    return { appId: app.appId, publicKey: pair.publicKey, privateKey: pair.privateKey };
   }
 
   async archive(id: string) {
@@ -261,6 +332,13 @@ export class ReleasesService {
       file_size: r.fileSize ? Number(r.fileSize) : null,
       sha256: r.sha256,
       external_url: r.externalUrl,
+      package_type: r.packageType,
+      install_strategy: r.installStrategy,
+      strip_root_dir: r.stripRootDir,
+      entry: r.entry,
+      post_install: r.postInstall,
+      // 已签名与否要能一眼看出来：未签名的包客户端可能会拒装
+      signed: !!r.signature,
       release_notes: r.releaseNotes,
       is_mandatory: r.isMandatory,
       rollout_percent: r.rolloutPercent,

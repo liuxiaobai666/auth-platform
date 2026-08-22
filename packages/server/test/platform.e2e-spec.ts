@@ -1655,4 +1655,125 @@ describe('卡密平台端到端测试', () => {
       expect(limitedAt).toBe(31);
     });
   });
+  describe('15. 更新包元数据与签名', () => {
+    const crypto = require('crypto');
+    let signedReleaseId: string;
+    let publicKey: string;
+
+    /** 客户端验签：各语言 SDK 复刻的就是这一段。 */
+    function verifySignature(
+      pubB64: string, appId: string, version: string,
+      sha256: string, fileSize: number, sigB64: string,
+    ): boolean {
+      try {
+        const raw = Buffer.from(pubB64, 'base64');
+        if (raw.length !== 32) return false;
+        const der = Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), raw]);
+        const key = crypto.createPublicKey({ key: der, format: 'der', type: 'spki' });
+        const payload = ['jc-kami-release-v1', appId, version, sha256, String(fileSize)].join('\n');
+        return crypto.verify(null, Buffer.from(payload, 'utf8'), key, Buffer.from(sigB64, 'base64'));
+      } catch {
+        return false;
+      }
+    }
+
+    it('创建应用即生成验签公钥，且任何接口都不返回私钥', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/admin/applications/${appRowId}`).set(adminAuth(superToken)).expect(200);
+      publicKey = res.body.update_sign_public_key;
+      expect(Buffer.from(publicKey, 'base64')).toHaveLength(32);
+      expect(JSON.stringify(res.body)).not.toMatch(/private/i);
+    });
+
+    it('上传时可带包元数据，发布后策略原样下发', async () => {
+      const content = Buffer.from('fake-onedir-package-content');
+      const created = await request(app.getHttpServer())
+        .post('/api/v1/admin/releases').set(adminAuth(superToken))
+        .field('application_id', appRowId)
+        .field('version', '3.1.0')
+        .field('package_type', 'onedir')
+        .field('install_strategy', 'versioned')
+        .field('strip_root_dir', 'true')
+        .field('entry', 'app.exe')
+        .attach('file', content, 'YourApp-3.1.0.zip')
+        .expect(201);
+      signedReleaseId = created.body.id;
+      expect(created.body.package_type).toBe('onedir');
+      expect(created.body.install_strategy).toBe('versioned');
+      // 草稿阶段还不签名，签名只在发布这一刻产生
+      expect(created.body.signed).toBe(false);
+
+      const published = await request(app.getHttpServer())
+        .post(`/api/v1/admin/releases/${signedReleaseId}/publish`).set(adminAuth(superToken))
+        .send({ rollout_percent: 100 }).expect(200);
+      expect(published.body.signed).toBe(true);
+
+      const res = await pluginRequest(app, creds, 'get',
+        `/api/v1/license/policy?app_id=${APP_ID}&client_version=1.0.0&device_id=pkg-device-1`).expect(200);
+      const upgrade = res.body.policy.upgrade;
+      expect(upgrade.package).toEqual({
+        type: 'onedir', install_strategy: 'versioned',
+        strip_root_dir: true, entry: 'app.exe', post_install: null,
+      });
+      expect(upgrade.signature).toBeTruthy();
+    });
+
+    it('下发的签名能被客户端公钥验证通过', async () => {
+      const res = await pluginRequest(app, creds, 'get',
+        `/api/v1/license/policy?app_id=${APP_ID}&client_version=1.0.0&device_id=pkg-device-2`).expect(200);
+      const u = res.body.policy.upgrade;
+      expect(verifySignature(publicKey, APP_ID, u.latest_version, u.sha256, u.file_size, u.signature))
+        .toBe(true);
+    });
+
+    it('签名覆盖版本号与哈希：篡改任意一项都验不过', async () => {
+      const res = await pluginRequest(app, creds, 'get',
+        `/api/v1/license/policy?app_id=${APP_ID}&client_version=1.0.0&device_id=pkg-device-3`).expect(200);
+      const u = res.body.policy.upgrade;
+      // 换包（哈希变了）
+      expect(verifySignature(publicKey, APP_ID, u.latest_version, '0'.repeat(64), u.file_size, u.signature))
+        .toBe(false);
+      // 冒充更高版本，防的是拿旧签名骗新版本的回滚攻击
+      expect(verifySignature(publicKey, APP_ID, '9.9.9', u.sha256, u.file_size, u.signature)).toBe(false);
+      // 挪用到别的应用
+      expect(verifySignature(publicKey, 'other_app', u.latest_version, u.sha256, u.file_size, u.signature))
+        .toBe(false);
+      // 攻击者用自己的密钥签
+      const spki = crypto.generateKeyPairSync('ed25519').publicKey.export({ format: 'der', type: 'spki' });
+      const foreign = spki.subarray(spki.length - 32).toString('base64');
+      expect(verifySignature(foreign, APP_ID, u.latest_version, u.sha256, u.file_size, u.signature))
+        .toBe(false);
+    });
+
+    it('策略里不下发公钥：公钥必须内置客户端，否则验签形同虚设', async () => {
+      const res = await pluginRequest(app, creds, 'get',
+        `/api/v1/license/policy?app_id=${APP_ID}&client_version=1.0.0&device_id=pkg-device-4`).expect(200);
+      expect(JSON.stringify(res.body)).not.toContain(publicKey);
+    });
+
+    it('包元数据留空时给出安全默认值', async () => {
+      const created = await request(app.getHttpServer())
+        .post('/api/v1/admin/releases').set(adminAuth(superToken))
+        .field('application_id', appRowId)
+        .field('version', '3.2.0')
+        .field('external_url', 'https://example.com/app-3.2.0.zip')
+        .expect(201);
+      expect(created.body.package_type).toBe('zip');
+      expect(created.body.install_strategy).toBe('versioned');
+      expect(created.body.strip_root_dir).toBe(false);
+    });
+
+    it('外部链接算不出哈希，只能留作未签名，由客户端决定是否接受', async () => {
+      const created = await request(app.getHttpServer())
+        .post('/api/v1/admin/releases').set(adminAuth(superToken))
+        .field('application_id', appRowId)
+        .field('version', '3.3.0')
+        .field('external_url', 'https://example.com/app-3.3.0.zip')
+        .expect(201);
+      const published = await request(app.getHttpServer())
+        .post(`/api/v1/admin/releases/${created.body.id}/publish`).set(adminAuth(superToken))
+        .send({}).expect(200);
+      expect(published.body.signed).toBe(false);
+    });
+  });
 });

@@ -18,6 +18,12 @@
     <RootNamespace>JcKami</RootNamespace>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- 联调项目要直接测 Ed25519 验签、解压防护这些内部实现 -->
+    <InternalsVisibleTo Include="JcKami.Sdk.IntegrationTests" />
+    <InternalsVisibleTo Include="JcKami.Sdk.IntegrationTests.Update" />
+  </ItemGroup>
+
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
   </ItemGroup>

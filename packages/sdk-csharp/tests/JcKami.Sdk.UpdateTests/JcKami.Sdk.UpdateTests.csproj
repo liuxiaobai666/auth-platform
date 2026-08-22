@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>JcKami.UpdateTests</RootNamespace>
+    <AssemblyName>JcKami.Sdk.IntegrationTests.Update</AssemblyName>
+    <!-- 本机只装了 .NET 10 运行时。保持 TFM 为 net8.0 是有意的：
+         验证的必须是用户实际会引用的那份构建 -->
+    <RollForward>LatestMajor</RollForward>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/JcKami.Sdk/JcKami.Sdk.csproj" />
+  </ItemGroup>
+</Project>

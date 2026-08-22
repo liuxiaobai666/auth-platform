@@ -84,6 +84,19 @@ export class PolicyService {
         sha256: release?.sha256 ?? null,
         release_notes: release?.releaseNotes ?? null,
         mandatory: !!release?.isMandatory,
+        // 安装方式：各语言 SDK 拿到这份描述就知道该怎么落地这个包
+        package: release
+          ? {
+              type: release.packageType,
+              install_strategy: release.installStrategy,
+              strip_root_dir: release.stripRootDir,
+              entry: release.entry,
+              post_install: release.postInstall,
+            }
+          : null,
+        // Ed25519 签名。注意公钥不在这里下发——公钥必须内置于客户端，
+        // 否则篡改本响应的人可以连公钥一起替换，验签就形同虚设。
+        signature: release?.signature ?? null,
       },
       notice: app.noticeEnabled
         ? {

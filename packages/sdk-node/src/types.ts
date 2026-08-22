@@ -1,3 +1,21 @@
+/** 安装包形态。SDK 拿到这份描述就知道该怎么把包落到磁盘上。 */
+export interface UpdatePackageInfo {
+  /** zip：普通压缩包；onefile：包本身就是可执行文件；onedir：目录形态的构建产物 */
+  type: 'zip' | 'onefile' | 'onedir' | string;
+  /**
+   * versioned：装进 versions/<版本>/ 再切指针（默认）；
+   * replace：同上，由宿主决定何时覆盖运行目录；
+   * notify：只提示，安装交给宿主自己处理（Electron autoUpdater 等），SDK 不动手。
+   */
+  install_strategy: 'versioned' | 'replace' | 'notify' | string;
+  /** 包内多套了一层顶层目录时剥掉它。只有所有条目共享同一个顶层目录才会真的剥 */
+  strip_root_dir: boolean;
+  /** 入口文件名，例如 app.exe / main.js */
+  entry: string | null;
+  /** 安装后命令。不在签名保护范围内，默认不执行 */
+  post_install: string | null;
+}
+
 export interface UpgradePolicy {
   /** 为真表示不升级就不能继续使用 */
   required: boolean;
@@ -9,6 +27,36 @@ export interface UpgradePolicy {
   sha256: string | null;
   release_notes: string | null;
   mandatory: boolean;
+  /** 安装包形态描述，老服务端可能没有 */
+  package?: UpdatePackageInfo | null;
+  /** Ed25519 签名（base64）。公钥必须内置在客户端，服务端不会下发 */
+  signature?: string | null;
+}
+
+export interface UpdaterOptions {
+  /** 应用根目录，versions/ 和 current.txt 都放在这里 */
+  root: string;
+  /**
+   * 应用的验签公钥（裸 32 字节的 base64），必须内置在客户端里。
+   * 绝不能从服务端下发——那样篡改响应的人可以连公钥一起换。
+   */
+  publicKey: string;
+  /** 保留几个历史版本（含当前版本），用于回滚。默认 2 */
+  keepVersions?: number;
+  /** 下载超时毫秒数，默认 60000 */
+  timeout?: number;
+}
+
+export interface ApplyOptions {
+  /** 下载进度回调，(已收字节, 总字节)。总字节未知时为 0 */
+  progress?: (received: number, total: number) => void;
+  /**
+   * 是否执行安装后命令。默认 false：
+   * 这条命令来自服务端且不在签名保护范围内，一旦响应被篡改就等于任意代码执行。
+   */
+  allowPostInstall?: boolean;
+  /** 安装完成后尝试重启到新版本 */
+  restart?: boolean;
 }
 
 export interface NoticePolicy {

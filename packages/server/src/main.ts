@@ -22,7 +22,21 @@ async function bootstrap() {
 
   const port = Number(process.env.PORT ?? 3100);
   await app.listen(port, '0.0.0.0');
-  new Logger('Bootstrap').log(`授权中心已启动: http://127.0.0.1:${port}`);
+
+  const logger = new Logger('Bootstrap');
+  logger.log(`授权中心已启动: http://127.0.0.1:${port}`);
+
+  // 没配这项时，下发给客户端的安装包地址会退化成相对路径，客户端根本下载不了。
+  // 这种坏法很安静——后台看着一切正常，只有真机更新时才炸，所以启动就喊出来。
+  const publicBaseUrl = process.env.PUBLIC_BASE_URL?.trim();
+  if (!publicBaseUrl) {
+    logger.warn(
+      '未配置 PUBLIC_BASE_URL：版本更新下发的 download_url 会缺少域名，客户端无法下载安装包。' +
+        '请在 .env 里填写对外访问地址，例如 https://auth.example.com',
+    );
+  } else if (!/^https?:\/\//i.test(publicBaseUrl)) {
+    logger.warn(`PUBLIC_BASE_URL 需要带上协议头（http:// 或 https://），当前值：${publicBaseUrl}`);
+  }
 }
 
 void bootstrap();
