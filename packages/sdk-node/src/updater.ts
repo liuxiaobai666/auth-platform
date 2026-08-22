@@ -20,6 +20,7 @@ import { ApplyOptions, UpdaterOptions, UpgradePolicy } from './types';
 
 export const CURRENT_POINTER = 'current.txt';
 const SIGN_PREFIX = 'jc-kami-release-v1';
+const DEFAULT_USER_AGENT = 'jc-kami-updater/1.0';
 
 function fail(message: string, code: string = LicenseErrorCode.INTERNAL_ERROR): never {
   throw new LicenseError(code, message);
@@ -92,6 +93,8 @@ export class Updater {
   readonly publicKey: string;
   readonly keepVersions: number;
   readonly timeout: number;
+  /** 下载请求携带的 User-Agent，见 UpdaterOptions.userAgent。 */
+  readonly userAgent: string;
 
   constructor(options: UpdaterOptions) {
     if (!options?.publicKey) {
@@ -101,6 +104,9 @@ export class Updater {
     this.publicKey = options.publicKey;
     this.keepVersions = Math.max(1, Math.floor(options.keepVersions ?? 2));
     this.timeout = options.timeout ?? 60_000;
+    // 不设的话 Node 的 fetch 会发 `user-agent: node`，Cloudflare 之类的浏览器完整性检查
+    // 会直接判成机器人并返回 403，下载根本到不了服务端。
+    this.userAgent = options.userAgent?.trim() || DEFAULT_USER_AGENT;
   }
 
   // ---------------------------------------------------------------- 路径
@@ -228,7 +234,18 @@ export class Updater {
     const out = fs.createWriteStream(target);
 
     try {
-      const res = await fetch(plan.downloadUrl!, { signal: controller.signal });
+      const res = await fetch(plan.downloadUrl!, {
+        signal: controller.signal,
+        headers: { 'User-Agent': this.userAgent, Accept: '*/*' },
+      });
+      if (res.status === 403) {
+        // 多半不是服务端拒绝，而是前面的 CDN/WAF 把非浏览器请求拦了
+        fail(
+          '下载安装包被拒绝（HTTP 403）。若域名走了 CDN/WAF（如 Cloudflare），'
+          + '请放行 /api/v1/releases/*/download，或关闭对非浏览器 User-Agent 的拦截。',
+          LicenseErrorCode.NETWORK_UNAVAILABLE,
+        );
+      }
       if (!res.ok) fail(`下载更新包失败：HTTP ${res.status}`, LicenseErrorCode.NETWORK_UNAVAILABLE);
 
       const declared = plan.fileSize ?? 0;

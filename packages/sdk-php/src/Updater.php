@@ -35,20 +35,34 @@ class Updater
     private const SIGN_PREFIX = 'jc-kami-release-v1';
     private const CHUNK = 262144;
 
+    /** 下载安装包时默认发送的 User-Agent。 */
+    public const DEFAULT_USER_AGENT = 'jc-kami-updater/1.0';
+
     private string $root;
     private string $publicKey;
     private int $keepVersions;
     private int $timeout;
+    private string $userAgent;
 
     /**
-     * @param string $root         应用根目录，versions/ 和 current.txt 都放这里
-     * @param string $publicKey    应用的验签公钥（base64 的裸 32 字节），必须内置在客户端。
-     *                             绝不能从服务端下发 —— 那样能篡改响应的人可以连公钥一起换。
-     * @param int    $keepVersions 保留几个历史版本，用于回滚
-     * @param int    $timeout      下载超时（秒）
+     * @param string      $root         应用根目录，versions/ 和 current.txt 都放这里
+     * @param string      $publicKey    应用的验签公钥（base64 的裸 32 字节），必须内置在客户端。
+     *                                  绝不能从服务端下发 —— 那样能篡改响应的人可以连公钥一起换。
+     * @param int         $keepVersions 保留几个历史版本，用于回滚
+     * @param int         $timeout      下载超时（秒）
+     * @param string|null $userAgent    下载时发送的 User-Agent，缺省 {@see DEFAULT_USER_AGENT}。
+     *                                  curl 默认一个 UA 都不发，很多 CDN/WAF（如 Cloudflare 的
+     *                                  浏览器完整性检查）会把这类请求判成机器人直接返回 403，
+     *                                  下载根本到不了服务端。传成和授权请求一致的 UA 最稳，
+     *                                  WAF 规则只需放行一个标识。
      */
-    public function __construct(string $root, string $publicKey, int $keepVersions = 2, int $timeout = 60)
-    {
+    public function __construct(
+        string $root,
+        string $publicKey,
+        int $keepVersions = 2,
+        int $timeout = 60,
+        ?string $userAgent = null
+    ) {
         if (trim($publicKey) === '') {
             throw new LicenseError(
                 ErrorCode::INTERNAL_ERROR,
@@ -59,6 +73,15 @@ class Updater
         $this->publicKey = trim($publicKey);
         $this->keepVersions = max(1, $keepVersions);
         $this->timeout = max(1, $timeout);
+        $this->userAgent = trim((string) $userAgent) !== ''
+            ? trim((string) $userAgent)
+            : self::DEFAULT_USER_AGENT;
+    }
+
+    /** 下载请求实际携带的 User-Agent。 */
+    public function userAgent(): string
+    {
+        return $this->userAgent;
     }
 
     // ---------------------------------------------------------------- 路径
@@ -268,6 +291,10 @@ class Updater
             CURLOPT_TIMEOUT => $this->timeout,
             CURLOPT_CONNECTTIMEOUT => min(30, $this->timeout),
             CURLOPT_FAILONERROR => true,
+            // 不设 UA 的话 curl 一个 User-Agent 都不发，Cloudflare 之类的浏览器完整性检查
+            // 会直接判成机器人并返回 403，下载根本到不了服务端
+            CURLOPT_USERAGENT => $this->userAgent,
+            CURLOPT_HTTPHEADER => ['Accept: */*'],
             // 跟随重定向时前一个响应可能带正文；每见到一次新的状态行就把已收内容作废，
             // 否则 302 的 HTML 说明页会被算进哈希
             CURLOPT_HEADERFUNCTION => function ($ch, string $header) use (&$ctx, &$received, &$fp, &$total, $plan) {
@@ -301,6 +328,8 @@ class Updater
         ]);
         $okCurl = curl_exec($ch);
         $curlError = curl_error($ch);
+        // CURLOPT_FAILONERROR 会把 4xx/5xx 变成 curl 失败，状态码得单独取出来才判得了 403
+        $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
         if (is_resource($ch)) {
             curl_close($ch);
         }
@@ -308,6 +337,14 @@ class Updater
 
         if ($overflow) {
             $this->fail('下载内容超出声明大小，已中止');
+        }
+        if ($status === 403) {
+            // 多半不是服务端拒绝，而是前面的 CDN/WAF 把非浏览器请求拦了
+            $this->fail(
+                '下载安装包被拒绝（HTTP 403）。若域名走了 CDN/WAF（如 Cloudflare），'
+                . '请放行 /api/v1/releases/*/download，或关闭对非浏览器 User-Agent 的拦截。',
+                ErrorCode::NETWORK_UNAVAILABLE
+            );
         }
         if ($okCurl === false) {
             $this->fail('下载更新包失败：' . $curlError, ErrorCode::NETWORK_UNAVAILABLE);

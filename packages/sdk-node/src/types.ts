@@ -45,6 +45,14 @@ export interface UpdaterOptions {
   keepVersions?: number;
   /** 下载超时毫秒数，默认 60000 */
   timeout?: number;
+  /**
+   * 下载安装包时发送的 User-Agent，默认 `jc-kami-updater/1.0`。
+   *
+   * Node 的 fetch 默认发 `node`，很多 CDN/WAF（如 Cloudflare 的浏览器完整性检查）
+   * 会把这类非浏览器标识判成机器人直接返回 403，下载根本到不了服务端。
+   * 传成和授权请求一致的 UA 最稳，WAF 规则只需放行一个标识。
+   */
+  userAgent?: string;
 }
 
 export interface ApplyOptions {

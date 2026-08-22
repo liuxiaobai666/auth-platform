@@ -327,6 +327,87 @@ if (DIRECTORY_SEPARATOR === '\\') {
     ok(($suidMode & 0111) !== 0, sprintf('但执行位仍保留（实际 %04o）', $suidMode));
 }
 
+section('【16】下载必须带 User-Agent（CDN/WAF 会拦非浏览器请求）');
+// 起一个真的 HTTP 服务把 updater 发出的请求头记下来 —— 只读代码判断不了实际发了什么。
+// curl 是阻塞的，服务只能另起进程：用 PHP 自带的开发服务器 + 路由脚本。
+$uaLog = $work . '/ua-log.txt';
+$router = $work . '/ua-router.php';
+file_put_contents($router, '<?php' . "\n" . strtr(
+    <<<'ROUTER'
+    file_put_contents(__LOG__, ($_SERVER['HTTP_USER_AGENT'] ?? '<无>') . "\t"
+        . ($_SERVER['HTTP_ACCEPT'] ?? '<无>') . "\n", FILE_APPEND | LOCK_EX);
+    if (strpos($_SERVER['REQUEST_URI'], '/waf403') === 0) {
+        // 模拟 Cloudflare 浏览器完整性检查的响应
+        http_response_code(403);
+        header('Server: cloudflare');
+        echo 'error code: 1010';
+        return true;
+    }
+    header('Content-Type: application/octet-stream');
+    header('Content-Length: ' . filesize(__PKG__));
+    readfile(__PKG__);
+    return true;
+    ROUTER,
+    ['__LOG__' => var_export($uaLog, true), '__PKG__' => var_export($pkg, true)]
+));
+
+$probe = stream_socket_server('tcp://127.0.0.1:0', $errNo, $errStr);
+$uaPort = (int) explode(':', (string) stream_socket_get_name($probe, false))[1];
+fclose($probe);
+
+$descriptors = [1 => ['file', $work . '/ua-server.log', 'a'], 2 => ['file', $work . '/ua-server.log', 'a']];
+$serverProc = proc_open(
+    sprintf('exec %s -S 127.0.0.1:%d %s', escapeshellarg(PHP_BINARY), $uaPort, escapeshellarg($router)),
+    $descriptors, $pipes
+);
+for ($i = 0; $i < 100; $i++) {
+    $probe = @fsockopen('127.0.0.1', $uaPort, $e1, $e2, 0.2);
+    if ($probe) { fclose($probe); break; }
+    usleep(50000);
+}
+
+$uaSeen = function (int $i): array {
+    $lines = array_values(array_filter(explode("\n", (string) @file_get_contents($GLOBALS['uaLogPath']))));
+    return isset($lines[$i]) ? explode("\t", $lines[$i]) : ['<没收到请求>', '<没收到请求>'];
+};
+$GLOBALS['uaLogPath'] = $uaLog;
+$localUrl = "http://127.0.0.1:{$uaPort}/pkg.zip";
+
+$rootUA1 = $work . '/siteUA1';
+mkdir($rootUA1, 0775, true);
+$rUA = (new Updater($rootUA1, $pubKey))->apply($mk(['download_url' => $localUrl]));
+ok($rUA->applied, '从本地服务下载并安装成功（走完整下载路径）');
+ok($uaSeen(0)[0] === 'jc-kami-updater/1.0', '默认 UA 已发出：' . $uaSeen(0)[0]);
+ok($uaSeen(0)[0] !== '<无>', 'curl 本来一个 User-Agent 都不发，现在确实发了');
+ok($uaSeen(0)[1] === '*/*', 'Accept 头已发出：' . $uaSeen(0)[1]);
+
+$rootUA2 = $work . '/siteUA2';
+mkdir($rootUA2, 0775, true);
+$customUa = 'my-app/9.9 (+license)';
+$rUA2 = (new Updater($rootUA2, $pubKey, 2, 60, $customUa))->apply($mk(['download_url' => $localUrl]));
+ok($rUA2->applied, '自定义 UA 时安装同样成功');
+ok($uaSeen(1)[0] === $customUa, '自定义 UA 透传到服务端：' . $uaSeen(1)[0]);
+ok((new Updater($rootUA2, $pubKey, 2, 60, '   '))->userAgent() === 'jc-kami-updater/1.0', '空白 UA 退回默认值');
+
+$msg403 = '';
+try {
+    $rootUA3 = $work . '/siteUA3';
+    mkdir($rootUA3, 0775, true);
+    (new Updater($rootUA3, $pubKey))->apply($mk(['download_url' => "http://127.0.0.1:{$uaPort}/waf403/pkg.zip"]));
+} catch (LicenseError $e) {
+    $msg403 = $e->getMessage();
+}
+ok(
+    strpos($msg403, 'HTTP 403') !== false && strpos($msg403, 'CDN/WAF') !== false
+        && strpos($msg403, 'User-Agent') !== false,
+    '403 给出可照做的提示：' . mb_substr($msg403, 0, 22) . '...'
+);
+
+if (is_resource($serverProc)) {
+    proc_terminate($serverProc);
+    proc_close($serverProc);
+}
+
 rrmdir($work);
 
 if ($failures === 0) {

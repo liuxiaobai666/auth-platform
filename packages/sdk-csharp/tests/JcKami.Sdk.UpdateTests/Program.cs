@@ -488,6 +488,103 @@ else
        $"但执行位仍保留（实际 {Convert.ToString(suidMode, 8)}）");
 }
 
+// ==================================================================== 【12】User-Agent
+
+Section("【12】下载必须带 User-Agent（CDN/WAF 会拦非浏览器请求）");
+
+// 起一个本地 HTTP 服务，把 updater 真实发出的请求头记下来 —— 只读代码判断不了实际发了什么
+var uaSeen = new List<string>();
+var acceptSeen = new List<string>();
+
+var portProbe = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+portProbe.Start();
+var uaPort = ((System.Net.IPEndPoint)portProbe.LocalEndpoint).Port;
+portProbe.Stop();
+
+var listener = new System.Net.HttpListener();
+listener.Prefixes.Add($"http://127.0.0.1:{uaPort}/");
+listener.Start();
+var serving = Task.Run(async () =>
+{
+    while (listener.IsListening)
+    {
+        System.Net.HttpListenerContext ctx;
+        try { ctx = await listener.GetContextAsync(); }
+        catch { break; }
+
+        uaSeen.Add(ctx.Request.Headers["User-Agent"] ?? "<无>");
+        acceptSeen.Add(ctx.Request.Headers["Accept"] ?? "<无>");
+
+        if (ctx.Request.Url!.AbsolutePath.StartsWith("/waf403"))
+        {
+            // 模拟 Cloudflare 浏览器完整性检查的响应
+            ctx.Response.StatusCode = 403;
+            var body = Encoding.UTF8.GetBytes("error code: 1010");
+            ctx.Response.ContentLength64 = body.Length;
+            await ctx.Response.OutputStream.WriteAsync(body);
+        }
+        else
+        {
+            ctx.Response.StatusCode = 200;
+            ctx.Response.ContentLength64 = pkgBytes.Length;
+            await ctx.Response.OutputStream.WriteAsync(pkgBytes);
+        }
+        ctx.Response.Close();
+    }
+});
+
+string LocalUrl(string path) => $"http://127.0.0.1:{uaPort}/{path}";
+string Seen(int i) => i < uaSeen.Count ? uaSeen[i] : "<没收到请求>";
+
+using (var u = new Updater(Path.Combine(work, "RootUA1"), publicKey))
+{
+    var r = await u.ApplyAsync(Clone(p => p.DownloadUrl = LocalUrl("pkg.zip")));
+    Ok(r.Applied, "从本地服务下载并安装成功（走完整下载路径）");
+}
+Ok(Seen(0) == "jc-kami-updater/1.0", $"默认 UA 已发出：{Seen(0)}");
+Ok(Seen(0) != "<无>", "HttpClient 本来一个 UA 都不发，现在确实发了");
+Ok(acceptSeen.Count > 0 && acceptSeen[0] == "*/*", $"Accept 头已发出：{(acceptSeen.Count > 0 ? acceptSeen[0] : "<无>")}");
+
+const string customUa = "my-app/9.9 (+license)";
+using (var u = new Updater(Path.Combine(work, "RootUA2"), publicKey, userAgent: customUa))
+{
+    var r = await u.ApplyAsync(Clone(p => p.DownloadUrl = LocalUrl("pkg.zip")));
+    Ok(r.Applied, "自定义 UA 时安装同样成功");
+}
+Ok(Seen(1) == customUa, $"自定义 UA 透传到服务端：{Seen(1)}");
+
+// 宿主注入的 HttpClient 已经配了自己的 UA，没显式要求就不该被顶掉
+using var hostHttp = new HttpClient();
+hostHttp.DefaultRequestHeaders.UserAgent.ParseAdd("host-app/2.0");
+using (var u = new Updater(Path.Combine(work, "RootUA3"), publicKey, httpClient: hostHttp))
+{
+    var r = await u.ApplyAsync(Clone(p => p.DownloadUrl = LocalUrl("pkg.zip")));
+    Ok(r.Applied, "注入 HttpClient 时安装同样成功");
+}
+Ok(Seen(2) == "host-app/2.0", $"注入的 HttpClient 自带 UA 被保留：{Seen(2)}");
+
+using (var u = new Updater(Path.Combine(work, "RootUA4"), publicKey, httpClient: hostHttp, userAgent: "explicit/1.0"))
+{
+    var r = await u.ApplyAsync(Clone(p => p.DownloadUrl = LocalUrl("pkg.zip")));
+    Ok(r.Applied, "显式 UA + 注入 HttpClient 安装成功");
+}
+Ok(Seen(3) == "explicit/1.0", $"显式传的 UA 优先于注入 client 的默认 UA：{Seen(3)}");
+Ok(hostHttp.DefaultRequestHeaders.UserAgent.ToString() == "host-app/2.0",
+   "只设在 HttpRequestMessage 上，宿主 client 的 DefaultRequestHeaders 未被改动");
+
+var msg403 = "";
+try
+{
+    using var u = new Updater(Path.Combine(work, "RootUA5"), publicKey);
+    await u.ApplyAsync(Clone(p => p.DownloadUrl = LocalUrl("waf403/pkg.zip")));
+}
+catch (LicenseException ex) { msg403 = ex.Message; }
+Ok(msg403.Contains("HTTP 403") && msg403.Contains("CDN/WAF") && msg403.Contains("User-Agent"),
+   $"403 给出可照做的提示：{(msg403.Length > 30 ? msg403[..30] + "..." : msg403)}");
+
+listener.Stop();
+try { await serving.WaitAsync(TimeSpan.FromSeconds(2)); } catch { /* 服务协程退出即可 */ }
+
 // ==================================================================== 收尾
 
 try { Directory.Delete(work, true); } catch { /* 清理失败不影响结论 */ }

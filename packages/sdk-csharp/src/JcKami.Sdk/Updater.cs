@@ -138,8 +138,12 @@ namespace JcKami
         private const string SignPrefix = "jc-kami-release-v1";
         private const int DownloadChunk = 256 * 1024;
 
+        /// <summary>下载安装包时默认发送的 User-Agent。</summary>
+        public const string DefaultUserAgent = "jc-kami-updater/1.0";
+
         private readonly HttpClient _http;
         private readonly bool _ownsHttp;
+        private readonly string _userAgent;
         private string _actualSha256;
 
         /// <summary>应用根目录，versions/ 与 current.txt 都放在这里。</summary>
@@ -155,7 +159,15 @@ namespace JcKami
         /// </param>
         /// <param name="keepVersions">保留几个历史版本</param>
         /// <param name="httpClient">可注入宿主已有的 HttpClient</param>
-        public Updater(string root, string publicKey, int keepVersions = 2, HttpClient httpClient = null)
+        /// <param name="userAgent">
+        /// 下载安装包时发送的 User-Agent，缺省 <see cref="DefaultUserAgent"/>。
+        ///
+        /// HttpClient 默认一个 UA 都不发，很多 CDN/WAF（如 Cloudflare 的浏览器完整性检查）
+        /// 会把这类请求判成机器人直接返回 403，下载根本到不了服务端。
+        /// 传成和授权请求一致的 UA 最稳，WAF 规则只需放行一个标识。
+        /// </param>
+        public Updater(string root, string publicKey, int keepVersions = 2, HttpClient httpClient = null,
+                       string userAgent = null)
         {
             if (string.IsNullOrWhiteSpace(publicKey))
                 throw new LicenseException(ErrorCode.InternalError,
@@ -169,7 +181,19 @@ namespace JcKami
 
             _ownsHttp = httpClient == null;
             _http = httpClient ?? new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
+
+            // 注入进来的 HttpClient 可能已经配好了自己的 UA，没显式要求就不去动它；
+            // 真要设也只设在 HttpRequestMessage 上，绝不改宿主 client 的 DefaultRequestHeaders。
+            if (!string.IsNullOrWhiteSpace(userAgent))
+                _userAgent = userAgent.Trim();
+            else if (httpClient != null && httpClient.DefaultRequestHeaders.UserAgent.Count > 0)
+                _userAgent = null;
+            else
+                _userAgent = DefaultUserAgent;
         }
+
+        /// <summary>下载请求实际携带的 User-Agent。为 null 表示沿用注入的 HttpClient 自带的 UA。</summary>
+        public string UserAgent => _userAgent;
 
         private string PublicKey { get; }
 
@@ -293,35 +317,49 @@ namespace JcKami
                 try
                 {
                     using (var request = new HttpRequestMessage(HttpMethod.Get, plan.DownloadUrl))
-                    using (var response = await _http
-                        .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct)
-                        .ConfigureAwait(false))
                     {
-                        if (!response.IsSuccessStatusCode)
-                            throw new LicenseException(ErrorCode.NetworkUnavailable,
-                                $"下载更新包失败：HTTP {(int)response.StatusCode}");
+                        // 只设在请求上：DefaultRequestHeaders 只在请求本身没有该头时才合并进来，
+                        // 所以这既能保证 UA 一定发出去，又不会改动宿主注入的 HttpClient。
+                        if (_userAgent != null)
+                            request.Headers.TryAddWithoutValidation("User-Agent", _userAgent);
+                        request.Headers.TryAddWithoutValidation("Accept", "*/*");
 
-                        var total = plan.FileSize ?? response.Content.Headers.ContentLength ?? 0;
-
-                        using (var source = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
-                        using (var sink = new FileStream(target, FileMode.Create, FileAccess.Write,
-                                                         FileShare.None, DownloadChunk, true))
+                        using (var response = await _http
+                            .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct)
+                            .ConfigureAwait(false))
                         {
-                            var buffer = new byte[DownloadChunk];
-                            while (true)
+                            if ((int)response.StatusCode == 403)
+                                // 多半不是服务端拒绝，而是前面的 CDN/WAF 把非浏览器请求拦了
+                                throw new LicenseException(ErrorCode.NetworkUnavailable,
+                                    "下载安装包被拒绝（HTTP 403）。若域名走了 CDN/WAF（如 Cloudflare），"
+                                    + "请放行 /api/v1/releases/*/download，或关闭对非浏览器 User-Agent 的拦截。");
+
+                            if (!response.IsSuccessStatusCode)
+                                throw new LicenseException(ErrorCode.NetworkUnavailable,
+                                    $"下载更新包失败：HTTP {(int)response.StatusCode}");
+
+                            var total = plan.FileSize ?? response.Content.Headers.ContentLength ?? 0;
+
+                            using (var source = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
+                            using (var sink = new FileStream(target, FileMode.Create, FileAccess.Write,
+                                                             FileShare.None, DownloadChunk, true))
                             {
-                                var read = await source.ReadAsync(buffer, 0, buffer.Length, ct)
-                                    .ConfigureAwait(false);
-                                if (read <= 0) break;
+                                var buffer = new byte[DownloadChunk];
+                                while (true)
+                                {
+                                    var read = await source.ReadAsync(buffer, 0, buffer.Length, ct)
+                                        .ConfigureAwait(false);
+                                    if (read <= 0) break;
 
-                                received += read;
-                                // 声明多大就只收多大，避免被超长响应撑爆磁盘
-                                if (plan.FileSize.HasValue && received > plan.FileSize.Value)
-                                    Fail("下载内容超出声明大小，已中止");
+                                    received += read;
+                                    // 声明多大就只收多大，避免被超长响应撑爆磁盘
+                                    if (plan.FileSize.HasValue && received > plan.FileSize.Value)
+                                        Fail("下载内容超出声明大小，已中止");
 
-                                await sink.WriteAsync(buffer, 0, read, ct).ConfigureAwait(false);
-                                hasher.AppendData(buffer, 0, read);
-                                progress?.Report((received, total));
+                                    await sink.WriteAsync(buffer, 0, read, ct).ConfigureAwait(false);
+                                    hasher.AppendData(buffer, 0, read);
+                                    progress?.Report((received, total));
+                                }
                             }
                         }
                     }
